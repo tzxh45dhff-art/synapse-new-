@@ -347,9 +347,9 @@ async def cancel_processing(db: AsyncSession, user: CurrentUser, resource_id: UU
     resource.processing_status = "cancelled"
 
     # Cancel any queued/running jobs
+    from sqlalchemy import update as sa_update
     await db.execute(
-        select(ResourceProcessingJob)
-        .__class__.update(ResourceProcessingJob)
+        sa_update(ResourceProcessingJob)
         .where(
             ResourceProcessingJob.resource_id == resource_id,
             ResourceProcessingJob.status.in_(["queued", "running"]),
