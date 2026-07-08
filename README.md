@@ -1,36 +1,98 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bunker — Monorepo
 
-## Getting Started
+AI-powered collaborative study OS.
 
-First, run the development server:
+## Project Structure
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+synapse/                     ← Repo root
+├── src/                     ← Next.js 15 App Router (frontend)
+│   ├── app/                 ← Routes & pages
+│   │   ├── auth/callback/   ← Supabase OAuth callback
+│   │   └── page.tsx         ← Landing page
+│   ├── lib/
+│   │   ├── supabase/
+│   │   │   ├── client.ts    ← Browser Supabase client
+│   │   │   └── server.ts    ← Server Supabase client
+│   │   └── api-client.ts    ← FastAPI fetch wrapper
+│   ├── types/
+│   │   ├── models.ts        ← Shared TypeScript types
+│   │   └── database.ts      ← Supabase generated types
+│   └── middleware.ts        ← Auth guard + session refresh
+├── backend/                 ← FastAPI (backend)
+│   ├── app/
+│   │   ├── main.py          ← Entry point
+│   │   ├── core/            ← Config, logging, exceptions
+│   │   ├── api/             ← Routes + dependencies
+│   │   ├── models/          ← SQLAlchemy ORM models
+│   │   ├── schemas/         ← Pydantic schemas
+│   │   ├── services/        ← Business logic
+│   │   └── db/              ← Session, base, migrations
+│   ├── alembic/             ← Database migrations
+│   └── requirements.txt
+├── scripts/
+│   └── init-db.sql          ← Docker DB init
+└── docker-compose.yml
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Quick Start
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 1. Frontend
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+# Install dependencies (already done by create-next-app)
+npm install
 
-## Learn More
+# Copy env
+cp .env.example .env.local
+# Fill in NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-To learn more about Next.js, take a look at the following resources:
+# Run dev server
+npm run dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 2. Backend
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+cd backend
 
-## Deploy on Vercel
+# Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# Install dependencies
+pip install -r requirements.txt
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# Copy env
+cp .env.example .env
+# Fill in all values
+
+# Run migrations (requires running Postgres)
+alembic upgrade head
+
+# Start dev server
+uvicorn app.main:app --reload
+```
+
+### 3. Local Database (Docker)
+
+```bash
+# Start Postgres (pgvector) + Redis
+docker-compose up db redis -d
+
+# Or start everything
+docker-compose up -d
+```
+
+### 4. Generate Supabase Types
+
+```bash
+# After connecting Supabase CLI to your project:
+npx supabase gen types typescript --local > src/types/database.ts
+```
+
+## Environment Variables
+
+See `.env.example` (frontend) and `backend/.env.example` (backend).
+
+**Critical:** `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_JWT_SECRET` must **only** exist in the backend `.env`. They must never be in frontend env files.
