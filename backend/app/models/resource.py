@@ -10,8 +10,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
 
-# Maximum embedding dimensions we support. Actual dims stored in embedding_dimensions.
-MAX_VECTOR_DIMS = 3072
+# Embedding vector dimension. Matches the configured embedding model
+# (text-embedding-3-small = 1536) and the resource_chunks.embedding column
+# (see migration 0004). Kept ≤ 2000 so pgvector can build an HNSW index.
+MAX_VECTOR_DIMS = 1536
 
 
 class Resource(Base):

@@ -323,14 +323,24 @@ async def retry_processing(db: AsyncSession, user: CurrentUser, resource_id: UUI
     if resource.processing_stage not in ("failed", "cancelled"):
         raise ValidationError("Only failed or cancelled resources can be retried.")
 
-    resource.processing_stage = "uploaded"
+    # Resume from the stage that failed — never re-run completed stages.
+    # The most recent job's type identifies the stage to restart.
+    jobs = sorted(resource.processing_jobs, key=lambda j: j.created_at, reverse=True)
+    resume_type = jobs[0].job_type if jobs else "metadata_extraction"
+    resume_stage = {
+        "metadata_extraction": "uploaded",
+        "chunking": "chunking",
+        "embedding": "embedding",
+    }.get(resume_type, "uploaded")
+
+    resource.processing_stage = resume_stage
     resource.processing_status = "pending"
     resource.processing_error = None
 
     from app.services.processing_service import enqueue_job
-    await enqueue_job(db, resource.id, "metadata_extraction")
+    await enqueue_job(db, resource.id, resume_type)
 
-    await _log(db, user.id, "resource.retry", resource_id)
+    await _log(db, user.id, "resource.retry", resource_id, resume_stage=resume_stage)
     await db.commit()
     await db.refresh(resource)
     return resource

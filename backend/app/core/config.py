@@ -27,6 +27,20 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str
     OPENAI_API_KEY: str = ""  # Optional fallback
 
+    # Provider abstraction. Only requirement: swapping providers = new adapter,
+    # never touching services. See app/services/ai/.
+    AI_PROVIDER: str = "openai"           # openai | gemini (future)
+    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_DIMENSIONS: int = 1536      # MUST match resource_chunks.embedding vector(N)
+    LLM_CHAT_MODEL: str = "gpt-4o-mini"   # default generation model
+    LLM_MAX_OUTPUT_TOKENS: int = 4096
+    # Vector search tuning
+    VECTOR_SEARCH_TOP_K: int = 20         # candidates fetched before rerank
+    VECTOR_SEARCH_RERANK_K: int = 5       # returned after rerank
+    # Chunking
+    CHUNK_TARGET_TOKENS: int = 475        # 450–500 token target
+    CHUNK_OVERLAP_TOKENS: int = 75
+
     # ── Redis ──────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
 

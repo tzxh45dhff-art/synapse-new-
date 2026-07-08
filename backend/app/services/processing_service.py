@@ -22,8 +22,9 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal
-from app.models.resource import Resource, ResourceMetadata, ResourceProcessingJob
-from app.services import storage_service
+from app.models.resource import Resource, ResourceChunk, ResourceMetadata, ResourceProcessingJob
+from app.repositories.chunk_repository import ChunkRepository
+from app.services import chunking_service, embedding_service, extraction_service, storage_service
 
 logger = structlog.get_logger()
 
@@ -117,6 +118,10 @@ async def _run_job(job_id: UUID) -> None:
         try:
             if job.job_type == "metadata_extraction":
                 await _extract_metadata(db, resource, job)
+            elif job.job_type == "chunking":
+                await _run_chunking(db, resource, job)
+            elif job.job_type == "embedding":
+                await _run_embedding(db, resource, job)
             else:
                 logger.warning("processing.unknown_job_type", job_type=job.job_type)
                 await _fail_job(db, job, f"Unknown job_type: {job.job_type}")
@@ -216,22 +221,109 @@ async def _extract_metadata(
 
     await db.flush()
 
-    # ── Stage 3: Complete ─────────────────────────────────────────────────
+    # ── Metadata done → hand off to chunking ──────────────────────────────
+    now = datetime.now(timezone.utc)
+    await db.execute(
+        update(Resource).where(Resource.id == rid).values(processing_status="processing")
+    )
+    job.status = "completed"
+    job.completed_at = now
+    await enqueue_job(db, rid, "chunking")
+    await db.commit()
+    logger.info("processing.metadata_done", resource_id=str(rid))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Chunking pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _run_chunking(db: AsyncSession, resource: Resource, job: ResourceProcessingJob) -> None:
+    """Extract full text, split into chunks, persist them (no embeddings yet)."""
+    await _set_stage(db, resource, "chunking")
+    raw_bytes = await storage_service.download_object(resource.file_url)
+
+    try:
+        blocks = extraction_service.extract_text_blocks(raw_bytes, resource.file_type)
+    except extraction_service.UnsupportedFileType:
+        # e.g. images — nothing to chunk. Complete, but not AI-ready.
+        await _complete_without_ai(db, resource, job, reason="no_text_extractor")
+        return
+
+    chunk_data = chunking_service.chunk_blocks(blocks)
+    if not chunk_data:
+        await _complete_without_ai(db, resource, job, reason="no_extractable_text")
+        return
+
+    repo = ChunkRepository(db)
+    await repo.delete_chunks(resource.id)  # idempotent — supports stage re-run
+    rows = [
+        ResourceChunk(
+            resource_id=resource.id,
+            vault_id=resource.vault_id,
+            chunk_index=c.chunk_index,
+            content=c.content,
+            token_count=c.token_count,
+            page_number=c.page_number,
+            heading=c.heading,
+        )
+        for c in chunk_data
+    ]
+    await repo.bulk_insert(rows)
+
+    job.status = "completed"
+    job.completed_at = datetime.now(timezone.utc)
+    await enqueue_job(db, resource.id, "embedding")
+    await db.commit()
+    logger.info("processing.chunking_done", resource_id=str(resource.id), chunks=len(rows))
+
+
+async def _run_embedding(db: AsyncSession, resource: Resource, job: ResourceProcessingJob) -> None:
+    """Embed all chunks; only mark AI-ready once every chunk has a vector."""
+    await _set_stage(db, resource, "embedding")
+    await embedding_service.embed_resource_chunks(db, resource)
+
+    repo = ChunkRepository(db)
+    total = await repo.count_for_resource(resource.id)
+    embedded = await repo.count_embedded(resource.id)
+    if total == 0 or embedded < total:
+        # Incomplete → raise so the worker retries the embedding stage only.
+        raise RuntimeError(f"Embedding incomplete: {embedded}/{total} chunks embedded.")
+
     now = datetime.now(timezone.utc)
     await db.execute(
         update(Resource)
-        .where(Resource.id == rid)
+        .where(Resource.id == resource.id)
         .values(
             processing_stage="complete",
             processing_status="ready",
+            is_ai_ready=True,
             processed_at=now,
-            # is_ai_ready stays False until chunking+embedding are done (future)
         )
     )
     job.status = "completed"
     job.completed_at = now
     await db.commit()
-    logger.info("processing.complete", resource_id=str(rid))
+    logger.info("processing.embedding_done", resource_id=str(resource.id), embedded=embedded)
+
+
+async def _complete_without_ai(
+    db: AsyncSession, resource: Resource, job: ResourceProcessingJob, *, reason: str
+) -> None:
+    now = datetime.now(timezone.utc)
+    await db.execute(
+        update(Resource)
+        .where(Resource.id == resource.id)
+        .values(
+            processing_stage="complete",
+            processing_status="ready",
+            is_ai_ready=False,
+            processed_at=now,
+        )
+    )
+    job.status = "completed"
+    job.completed_at = now
+    await db.commit()
+    logger.info("processing.complete_without_ai", resource_id=str(resource.id), reason=reason)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

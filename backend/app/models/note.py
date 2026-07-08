@@ -61,8 +61,10 @@ class NoteGeneration(Base):
     note_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("notes.id", ondelete="CASCADE"), nullable=False
     )
-    generation_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("ai_generations.id", ondelete="SET NULL"), nullable=False
+    # Nullable: FK uses ON DELETE SET NULL so the generation audit row can be
+    # pruned without cascading away the note.
+    generation_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("ai_generations.id", ondelete="SET NULL")
     )
     source_resource_ids: Mapped[list[str]] = mapped_column(ARRAY(PGUUID(as_uuid=True)), default=list)
     prompt_template: Mapped[str | None] = mapped_column(String(100))

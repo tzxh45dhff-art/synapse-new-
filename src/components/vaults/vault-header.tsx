@@ -85,6 +85,22 @@ export function VaultHeader({ vault, squadId }: VaultHeaderProps) {
         </Link>
       </div>
 
+      {/* Section nav */}
+      <div className="mt-6 flex items-center gap-1">
+        {[
+          { label: "Resources", seg: "resources" },
+          { label: "Notes", seg: "notes" },
+        ].map((s) => (
+          <Link
+            key={s.seg}
+            href={`/dashboard/squads/${squadId}/vaults/${vault.id}/${s.seg}`}
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-white"
+          >
+            {s.label}
+          </Link>
+        ))}
+      </div>
+
       {/* Stats strip */}
       {stats && (
         <div className="flex flex-wrap gap-6 mt-6 pt-6 border-t border-white/[0.06]">
