@@ -15,6 +15,8 @@ import {
 import { ProcessingBadge } from "./processing-badge";
 import type { ResourceListItem } from "@/types/vault";
 import { getResourceDownloadUrl } from "@/app/actions/resources/queries";
+import { toast } from "sonner";
+
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
