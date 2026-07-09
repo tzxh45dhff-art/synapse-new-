@@ -7,10 +7,8 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { createClient } from "@/lib/supabase/client";
+import { exportNoteAction } from "@/app/actions/notes/queries";
 import type { ExportFormat } from "@/types/notes";
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
 const FORMATS: { fmt: ExportFormat; label: string }[] = [
   { fmt: "markdown", label: "Markdown (.md)" },
@@ -24,16 +22,17 @@ export function ExportMenu({ noteId, title }: { noteId: string; title: string })
   async function handleExport(fmt: ExportFormat) {
     setBusy(true);
     try {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${BACKEND_URL}/api/v1/notes/${noteId}/export?format=${fmt}`, {
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.detail ?? `Export failed (${res.status})`);
+      const { data, contentType } = await exportNoteAction(noteId, fmt);
+
+      // Decode base64 to binary
+      const byteCharacters = atob(data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
-      const blob = await res.blob();
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: contentType });
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       const ext = fmt === "markdown" ? "md" : fmt;
@@ -49,6 +48,7 @@ export function ExportMenu({ noteId, title }: { noteId: string; title: string })
       setBusy(false);
     }
   }
+
 
   return (
     <DropdownMenu>

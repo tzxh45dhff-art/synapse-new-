@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { createClient } from "@/lib/supabase/client";
+import { exportNoteAction } from "@/app/actions/notes/queries";
 import type { NoteListItem } from "@/types/notes";
 
 const SOURCE_META: Record<string, { label: string; icon: typeof Sparkles; cls: string }> = {
@@ -35,17 +35,17 @@ export function NoteCard({ note, href, index = 0, onTogglePin, onDelete }: Props
   async function handleDownloadPDF() {
     setDownloading(true);
     try {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
-      const res = await fetch(`${BACKEND_URL}/api/v1/notes/${note.id}/export?format=pdf`, {
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.detail ?? `Export failed (${res.status})`);
+      const { data, contentType } = await exportNoteAction(note.id, "pdf");
+
+      // Decode base64 to binary
+      const byteCharacters = atob(data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
-      const blob = await res.blob();
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: contentType });
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

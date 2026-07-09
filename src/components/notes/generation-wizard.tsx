@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { createClient } from "@/lib/supabase/client";
+import { exportNoteAction } from "@/app/actions/notes/queries";
 import { MarkdownViewer } from "@/components/notes/markdown-viewer";
 import { GenerationSettingsPanel } from "@/components/notes/generation-settings";
 import { streamGenerate } from "@/lib/notes-stream";
@@ -85,17 +85,17 @@ export function GenerationWizard({ vaultId, squadId, resources, templates }: Pro
     if (!noteId) return;
     setDownloading(true);
     try {
-      const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
-      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
-      const res = await fetch(`${BACKEND_URL}/api/v1/notes/${noteId}/export?format=pdf`, {
-        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.detail ?? `Export failed (${res.status})`);
+      const { data, contentType } = await exportNoteAction(noteId, "pdf");
+
+      // Decode base64 to binary
+      const byteCharacters = atob(data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
-      const blob = await res.blob();
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: contentType });
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
