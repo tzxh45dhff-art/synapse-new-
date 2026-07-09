@@ -297,6 +297,7 @@ async def _run_embedding(db: AsyncSession, resource: Resource, job: ResourceProc
             processing_stage="complete",
             processing_status="ready",
             is_ai_ready=True,
+            processing_error=None,
             processed_at=now,
         )
     )
@@ -317,6 +318,7 @@ async def _complete_without_ai(
             processing_stage="complete",
             processing_status="ready",
             is_ai_ready=False,
+            processing_error=None,
             processed_at=now,
         )
     )
