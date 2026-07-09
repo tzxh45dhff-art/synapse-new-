@@ -5,10 +5,12 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   Sparkles, Loader2, StopCircle, RotateCcw, FileStack,
-  Layers, FileText, BookOpen, Check,
+  Layers, FileText, BookOpen, Check, Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
 import { MarkdownViewer } from "@/components/notes/markdown-viewer";
 import { GenerationSettingsPanel } from "@/components/notes/generation-settings";
 import { streamGenerate } from "@/lib/notes-stream";
@@ -76,7 +78,40 @@ export function GenerationWizard({ vaultId, squadId, resources, templates }: Pro
   const [usage, setUsage] = useState<GenerationUsage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [noteId, setNoteId] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  async function handleExportPDF() {
+    if (!noteId) return;
+    setDownloading(true);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+      const res = await fetch(`${BACKEND_URL}/api/v1/notes/${noteId}/export?format=pdf`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.detail ?? `Export failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(title || "Generated Note").replace(/[^a-z0-9 \-_]/gi, "_") || "note"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success("PDF downloaded successfully!");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "PDF download failed");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
 
   function toggleResource(id: string) {
     setSelectedResources((prev) =>
@@ -360,11 +395,20 @@ export function GenerationWizard({ vaultId, squadId, resources, templates }: Pro
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="flex justify-end border-t border-white/[0.06] px-5 py-3"
+            className="flex justify-end gap-2 border-t border-white/[0.06] px-5 py-3"
           >
             <Button
+              onClick={handleExportPDF}
+              disabled={downloading}
+              variant="outline"
+              className="gap-2 border-white/[0.08] bg-white/[0.02] text-zinc-300 hover:bg-white/[0.06] hover:text-white"
+            >
+              {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Download PDF
+            </Button>
+            <Button
               onClick={() => router.push(`/dashboard/squads/${squadId}/vaults/${vaultId}/notes/${noteId}`)}
-              className="gap-2 bg-emerald-600 hover:bg-emerald-500"
+              className="gap-2 bg-emerald-600 hover:bg-emerald-500 text-white"
             >
               Open note →
             </Button>

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ProcessingBadge } from "./processing-badge";
 import type { ResourceListItem } from "@/types/vault";
+import { getResourceDownloadUrl } from "@/app/actions/resources/queries";
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -50,6 +51,23 @@ export function ResourceCard({
   const uploaderName = uploader?.display_name ?? uploader?.full_name ?? "Unknown";
   const isProcessing = !["complete", "failed", "cancelled"].includes(resource.processing_stage);
 
+  async function handleOpenResource() {
+    if (onClick) {
+      onClick(resource.id);
+      return;
+    }
+    if (resource.processing_stage !== "complete") {
+      toast.error(`File is still processing (${resource.processing_stage}). Please wait.`);
+      return;
+    }
+    try {
+      const { download_url } = await getResourceDownloadUrl(resource.id);
+      window.open(download_url, "_blank");
+    } catch {
+      toast.error("Failed to open file.");
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -58,7 +76,7 @@ export function ResourceCard({
       className="group flex items-center gap-4 px-4 py-3.5 rounded-xl
         border border-white/[0.05] bg-white/[0.02]
         hover:border-white/[0.1] hover:bg-white/[0.04] transition-all duration-150 cursor-pointer"
-      onClick={() => onClick?.(resource.id)}
+      onClick={handleOpenResource}
     >
       {/* File icon */}
       <div className="w-10 h-10 rounded-lg bg-white/[0.05] border border-white/[0.06]
@@ -109,9 +127,11 @@ export function ResourceCard({
             className="gap-2 cursor-pointer hover:bg-white/[0.06]">
             <Pencil className="w-3.5 h-3.5" /> Rename
           </DropdownMenuItem>
-          <DropdownMenuItem className="gap-2 cursor-pointer hover:bg-white/[0.06]">
-            <Download className="w-3.5 h-3.5" /> Download
+          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenResource(); }}
+            className="gap-2 cursor-pointer hover:bg-white/[0.06]">
+            <Download className="w-3.5 h-3.5" /> Download / Open
           </DropdownMenuItem>
+
           {resource.processing_stage === "failed" && (
             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onRetry?.(resource.id); }}
               className="gap-2 cursor-pointer hover:bg-white/[0.06] text-amber-400">

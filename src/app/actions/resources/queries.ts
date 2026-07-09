@@ -17,3 +17,9 @@ export async function getResourceStatus(resourceId: string): Promise<ResourceSta
   const api = await authedApi();
   return api.get<ResourceStatus>(`/resources/${resourceId}/status`);
 }
+
+export async function getResourceDownloadUrl(resourceId: string): Promise<{ download_url: string }> {
+  const api = await authedApi();
+  return api.get<{ download_url: string }>(`/resources/${resourceId}/download-url`);
+}
+

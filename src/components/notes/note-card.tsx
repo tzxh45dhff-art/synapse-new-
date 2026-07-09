@@ -1,14 +1,17 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
-import { Sparkles, Pencil, Pin, MoreHorizontal, Trash2, FileText } from "lucide-react";
+import { Sparkles, Pencil, Pin, MoreHorizontal, Trash2, FileText, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { createClient } from "@/lib/supabase/client";
 import type { NoteListItem } from "@/types/notes";
 
 const SOURCE_META: Record<string, { label: string; icon: typeof Sparkles; cls: string }> = {
@@ -27,8 +30,40 @@ interface Props {
 
 export function NoteCard({ note, href, index = 0, onTogglePin, onDelete }: Props) {
   const meta = SOURCE_META[note.source_type] ?? SOURCE_META.manual;
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownloadPDF() {
+    setDownloading(true);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+      const res = await fetch(`${BACKEND_URL}/api/v1/notes/${note.id}/export?format=pdf`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.detail ?? `Export failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${note.title.replace(/[^a-z0-9 \-_]/gi, "_") || "note"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success("PDF downloaded successfully!");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "PDF download failed");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
+
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
@@ -62,12 +97,17 @@ export function NoteCard({ note, href, index = 0, onTogglePin, onDelete }: Props
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-40 border-white/[0.08] bg-zinc-900 text-white">
-          <DropdownMenuItem onClick={() => onTogglePin?.(note.id, !note.is_pinned)} className="gap-2 hover:bg-white/[0.06]">
+          <DropdownMenuItem onClick={() => onTogglePin?.(note.id, !note.is_pinned)} className="gap-2 hover:bg-white/[0.06] cursor-pointer">
             <Pin className="h-3.5 w-3.5" /> {note.is_pinned ? "Unpin" : "Pin"}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onDelete?.(note.id)} className="gap-2 text-red-400 hover:bg-red-950/40">
+          <DropdownMenuItem onClick={() => handleDownloadPDF()} disabled={downloading} className="gap-2 hover:bg-white/[0.06] cursor-pointer">
+            {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Download PDF
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onDelete?.(note.id)} className="gap-2 text-red-400 hover:bg-red-950/40 cursor-pointer">
             <Trash2 className="h-3.5 w-3.5" /> Delete
           </DropdownMenuItem>
+
         </DropdownMenuContent>
       </DropdownMenu>
     </motion.div>

@@ -188,3 +188,17 @@ def _profile_dict(profile) -> dict | None:
         "full_name": profile.full_name,
         "avatar_url": profile.avatar_url,
     }
+
+
+@router.get("/resources/{resource_id}/download-url")
+async def get_download_url(
+    resource_id: UUID,
+    current_user: CurrentUserDep,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Generate a temporary signed download URL for the resource file."""
+    resource = await resource_service.get_resource(db, current_user, resource_id)
+    from app.services import storage_service
+    url = await storage_service.generate_signed_download_url(resource.file_url)
+    return {"download_url": url}
+
