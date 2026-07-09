@@ -69,7 +69,12 @@ async def generate_signed_download_url(
             raise ValueError(f"Unexpected storage response: {data}")
         if signed.startswith("http"):
             return signed
+        if not signed.startswith("/"):
+            signed = "/" + signed
+        if not signed.startswith("/storage/v1"):
+            return f"{settings.SUPABASE_URL}/storage/v1{signed}"
         return f"{settings.SUPABASE_URL}{signed}"
+
 
 
 async def verify_object_exists(path: str) -> bool:
