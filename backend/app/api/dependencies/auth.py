@@ -8,7 +8,7 @@ from jwt import PyJWKClient
 import structlog
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -31,8 +31,51 @@ SQUAD_ROLES_HIERARCHY = {
 
 # JWKS Client to fetch and cache public keys for JWT validation
 # Supabase exposes this on the auth endpoint
-jwks_url = f"{settings.SUPABASE_URL}/auth/v1/jwks"
-jwks_client = PyJWKClient(jwks_url)
+jwks_url = f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json"
+jwks_client = PyJWKClient(jwks_url, headers={"apikey": settings.SUPABASE_ANON_KEY})
+
+
+async def _sync_user_to_db(db: AsyncSession, user_id: str, email: str, payload: dict) -> None:
+    """
+    Ensures that a user authenticated via remote Supabase Auth exists in the local 
+    Postgres database ('auth.users' and 'public.profiles') to prevent foreign key violations.
+    """
+    try:
+        # Check if user exists in local auth.users
+        res = await db.execute(
+            text("SELECT id FROM auth.users WHERE id = :id"),
+            {"id": UUID(user_id)}
+        )
+        exists = res.scalar_one_or_none()
+        if not exists:
+            # Insert into auth.users stub table
+            await db.execute(
+                text("INSERT INTO auth.users (id, email) VALUES (:id, :email) ON CONFLICT (id) DO NOTHING"),
+                {"id": UUID(user_id), "email": email}
+            )
+            
+            # Insert into public.profiles table
+            user_metadata = payload.get("user_metadata", {}) or {}
+            full_name = user_metadata.get("full_name") or payload.get("full_name")
+            university = user_metadata.get("university")
+            
+            await db.execute(
+                text("""
+                    INSERT INTO public.profiles (id, email, full_name, university, onboarding_completed)
+                    VALUES (:id, :email, :full_name, :university, true)
+                    ON CONFLICT (id) DO NOTHING
+                """),
+                {
+                    "id": UUID(user_id),
+                    "email": email,
+                    "full_name": full_name,
+                    "university": university,
+                }
+            )
+            await db.commit()
+    except Exception as db_err:
+        logger.warning("bunker.auth.sync_user_error", error=str(db_err))
+        await db.rollback()
 
 
 # ---------------------------------------------------------------------------
@@ -40,10 +83,11 @@ jwks_client = PyJWKClient(jwks_url)
 # ---------------------------------------------------------------------------
 async def get_optional_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> CurrentUser | None:
     """
     Verify the Supabase JWT using JWKS if present, else returns None.
-    Extracts the authenticated user's UUID.
+    Extracts the authenticated user's UUID and syncs user to local database.
     """
     if not credentials:
         return None
@@ -55,7 +99,7 @@ async def get_optional_user(
         payload = jwt.decode(
             token,
             signing_key.key,
-            algorithms=["RS256"],
+            algorithms=["RS256", "ES256"],
             audience="authenticated",
         )
         user_id: str = payload.get("sub")
@@ -65,26 +109,35 @@ async def get_optional_user(
         if not user_id:
             raise UnauthorizedError("Invalid token: missing subject.")
 
+        await _sync_user_to_db(db, user_id, email, payload)
         return CurrentUser(id=UUID(user_id), email=email, role=role)
 
     except jwt.ExpiredSignatureError:
         raise UnauthorizedError("Token has expired.")
     except jwt.PyJWKClientError as e:
         logger.warning("bunker.auth.jwks_error", error=str(e))
-        # Fallback to local secret validation if RS256 fails (useful for local dev with simple JWTs)
+        # Fallback to local secret validation if RS256/ES256 fails (useful for local dev with simple JWTs)
         try:
+            import base64
+            try:
+                secret = base64.b64decode(settings.SUPABASE_JWT_SECRET)
+            except Exception:
+                secret = settings.SUPABASE_JWT_SECRET
+
             payload = jwt.decode(
                 token,
-                settings.SUPABASE_JWT_SECRET,
+                secret,
                 algorithms=["HS256"],
                 audience="authenticated",
             )
-            return CurrentUser(
-                id=UUID(payload["sub"]),
-                email=payload.get("email", ""),
-                role=payload.get("role", "authenticated"),
-            )
-        except Exception:
+            user_id = payload["sub"]
+            email = payload.get("email", "")
+            role = payload.get("role", "authenticated")
+
+            await _sync_user_to_db(db, user_id, email, payload)
+            return CurrentUser(id=UUID(user_id), email=email, role=role)
+        except Exception as fallback_err:
+            logger.warning("bunker.auth.fallback_error", error=str(fallback_err))
             raise UnauthorizedError("Invalid authentication token (JWKS and fallback failed).")
     except jwt.InvalidTokenError as e:
         logger.warning("bunker.auth.invalid_token", error=str(e))

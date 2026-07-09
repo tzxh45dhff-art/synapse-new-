@@ -27,14 +27,16 @@ async function SquadsList() {
 
   if (squads.length === 0) {
     return (
-      <EmptyState
-        title="No squads yet"
-        description="Create your first study squad or join one with an invite code."
-        action={{
-          label: "Create Squad",
-          onClick: () => {},
-        }}
-      />
+      <div className="flex flex-col items-center">
+        <EmptyState
+          title="No squads yet"
+          description="Create your first study squad or join one with an invite code."
+        />
+        <div className="mt-6 flex gap-4">
+          <JoinSquadDialog />
+          <CreateSquadDialog />
+        </div>
+      </div>
     );
   }
 

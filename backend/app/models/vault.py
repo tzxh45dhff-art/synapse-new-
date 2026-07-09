@@ -55,6 +55,7 @@ class Vault(Base):
     squad: Mapped["Squad"] = relationship(back_populates="vaults")  # type: ignore
     resources: Mapped[list] = relationship("Resource", back_populates="vault")
     statistics: Mapped["VaultStatistics | None"] = relationship(back_populates="vault", uselist=False)
+    subject: Mapped["Subject | None"] = relationship("Subject")
 
 
 class VaultStatistics(Base):

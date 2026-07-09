@@ -1,6 +1,6 @@
 "use server";
 
-import { api } from "@/lib/api-client";
+import { authedApi } from "@/lib/server-api";
 import type { UploadUrlResponse } from "@/types/vault";
 
 export async function generateUploadUrl(
@@ -9,6 +9,7 @@ export async function generateUploadUrl(
   mimeType: string,
   fileSizeBytes: number,
 ): Promise<UploadUrlResponse> {
+  const api = await authedApi();
   return api.post<UploadUrlResponse>(`/vaults/${vaultId}/resources/upload-url`, {
     file_name: fileName,
     mime_type: mimeType,

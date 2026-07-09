@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api-client";
+import { getVault } from "@/app/actions/vaults/queries";
+import { listResources } from "@/app/actions/resources/queries";
 import { VaultHeader } from "@/components/vaults/vault-header";
 import { ResourceCard } from "@/components/resources/resource-card";
 import { Button } from "@/components/ui/button";
@@ -15,8 +16,8 @@ export default async function VaultDashboardPage({ params }: Props) {
   const { id: squadId, vaultId } = await params;
 
   const [vault, recentResources] = await Promise.all([
-    api.get<VaultDetail>(`/vaults/${vaultId}`).catch(() => null),
-    api.get<ResourceListItem[]>(`/vaults/${vaultId}/resources`).catch(() => []),
+    getVault(vaultId).catch(() => null) as Promise<VaultDetail | null>,
+    listResources(vaultId).catch(() => [] as ResourceListItem[]),
   ]);
 
   if (!vault) notFound();

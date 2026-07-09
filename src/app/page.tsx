@@ -1,10 +1,16 @@
-export default function Home() {
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center">
-      <h1 className="text-4xl font-bold">Bunker</h1>
-      <p className="mt-2 text-muted-foreground">
-        AI-powered collaborative study OS
-      </p>
-    </main>
-  );
+import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+
+export default async function Home() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    const onboardingCompleted = user.user_metadata?.onboarding_completed === true;
+    redirect(onboardingCompleted ? "/dashboard" : "/onboarding");
+  }
+
+  redirect("/login");
 }

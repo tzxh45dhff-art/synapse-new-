@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { api } from "@/lib/api-client";
+import { authedApi } from "@/lib/server-api";
 import type { ResourceDetail } from "@/types/vault";
 
 export async function renameResource(
@@ -10,6 +10,7 @@ export async function renameResource(
   squadId: string,
   vaultId: string,
 ): Promise<ResourceDetail> {
+  const api = await authedApi();
   const res = await api.patch<ResourceDetail>(`/resources/${resourceId}`, { title });
   revalidatePath(`/dashboard/squads/${squadId}/vaults/${vaultId}/resources`);
   return res;

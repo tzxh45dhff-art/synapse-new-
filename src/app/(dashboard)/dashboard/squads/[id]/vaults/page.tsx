@@ -1,11 +1,9 @@
 import { Suspense } from "react";
-import { notFound } from "next/navigation";
-import { api } from "@/lib/api-client";
+import { listVaults, listSubjects } from "@/app/actions/vaults/queries";
 import { VaultCard } from "@/components/vaults/vault-card";
 import { VaultGridSkeleton } from "@/components/vaults/vault-skeleton";
 import { VaultEmptyState } from "@/components/vaults/vault-empty-state";
 import { CreateVaultDialog } from "@/components/vaults/create-vault-dialog";
-import type { VaultListItem, SubjectItem } from "@/types/vault";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -15,14 +13,10 @@ interface Props {
 async function VaultGrid({ squadId, search, archived }: {
   squadId: string; search?: string; archived: boolean;
 }) {
-  const params = new URLSearchParams();
-  if (search) params.set("search", search);
-  if (archived) params.set("include_archived", "true");
-
-  const [vaults, subjects] = await Promise.all([
-    api.get<VaultListItem[]>(`/squads/${squadId}/vaults?${params}`),
-    api.get<SubjectItem[]>("/subjects"),
-  ]);
+  const vaults = await listVaults(squadId, {
+    search,
+    includeArchived: archived,
+  }).catch(() => []);
 
   if (!vaults.length) {
     return <VaultEmptyState showArchived={archived} />;
@@ -42,7 +36,7 @@ export default async function VaultsPage({ params, searchParams }: Props) {
   const { archived, q } = await searchParams;
   const showArchived = archived === "true";
 
-  const subjects = await api.get<SubjectItem[]>("/subjects").catch(() => []);
+  const subjects = await listSubjects().catch(() => []);
 
   return (
     <div className="space-y-8">

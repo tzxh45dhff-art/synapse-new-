@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { api } from "@/lib/api-client";
+import { authedApi } from "@/lib/server-api";
 import type { ResourceDetail } from "@/types/vault";
 
 export async function retryProcessing(
@@ -9,6 +9,7 @@ export async function retryProcessing(
   squadId: string,
   vaultId: string,
 ): Promise<ResourceDetail> {
+  const api = await authedApi();
   const res = await api.post<ResourceDetail>(`/resources/${resourceId}/retry`, {});
   revalidatePath(`/dashboard/squads/${squadId}/vaults/${vaultId}/resources`);
   return res;
@@ -19,6 +20,7 @@ export async function cancelProcessing(
   squadId: string,
   vaultId: string,
 ): Promise<ResourceDetail> {
+  const api = await authedApi();
   const res = await api.post<ResourceDetail>(`/resources/${resourceId}/cancel`, {});
   revalidatePath(`/dashboard/squads/${squadId}/vaults/${vaultId}/resources`);
   return res;

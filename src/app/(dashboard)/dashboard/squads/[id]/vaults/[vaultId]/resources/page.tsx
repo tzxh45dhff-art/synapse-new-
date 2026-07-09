@@ -1,22 +1,22 @@
 "use client";
 
-import { notFound } from "next/navigation";
-import { useEffect, useState, useCallback } from "react";
-import { api } from "@/lib/api-client";
+import { use, useEffect, useState, useCallback } from "react";
 import { UploadDropzone } from "@/components/resources/upload-dropzone";
 import { ResourceCard } from "@/components/resources/resource-card";
 import { VaultHeader } from "@/components/vaults/vault-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { deleteResource } from "@/app/actions/resources/delete-resource";
 import { retryProcessing } from "@/app/actions/resources/retry-processing";
+import { getVault } from "@/app/actions/vaults/queries";
+import { listResources } from "@/app/actions/resources/queries";
 import type { VaultDetail, ResourceListItem } from "@/types/vault";
 
 interface Props {
-  params: { id: string; vaultId: string };
+  params: Promise<{ id: string; vaultId: string }>;
 }
 
 export default function ResourcesPage({ params }: Props) {
-  const { id: squadId, vaultId } = params;
+  const { id: squadId, vaultId } = use(params);
 
   const [vault, setVault] = useState<VaultDetail | null>(null);
   const [resources, setResources] = useState<ResourceListItem[]>([]);
@@ -25,8 +25,8 @@ export default function ResourcesPage({ params }: Props) {
   const fetchData = useCallback(async () => {
     try {
       const [v, r] = await Promise.all([
-        api.get<VaultDetail>(`/vaults/${vaultId}`),
-        api.get<ResourceListItem[]>(`/vaults/${vaultId}/resources`),
+        getVault(vaultId),
+        listResources(vaultId),
       ]);
       setVault(v);
       setResources(r);

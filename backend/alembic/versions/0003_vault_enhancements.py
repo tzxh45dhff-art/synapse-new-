@@ -102,8 +102,8 @@ def upgrade() -> None:
         END;
         $$;
     """)
+    op.execute("DROP TRIGGER IF EXISTS trg_vault_statistics_init ON vaults")
     op.execute("""
-        DROP TRIGGER IF EXISTS trg_vault_statistics_init ON vaults;
         CREATE TRIGGER trg_vault_statistics_init
             AFTER INSERT ON vaults
             FOR EACH ROW EXECUTE FUNCTION trg_vault_statistics_init_fn();
@@ -176,8 +176,8 @@ def upgrade() -> None:
         END;
         $$;
     """)
+    op.execute("DROP TRIGGER IF EXISTS trg_vault_statistics ON resources")
     op.execute("""
-        DROP TRIGGER IF EXISTS trg_vault_statistics ON resources;
         CREATE TRIGGER trg_vault_statistics
             AFTER INSERT OR UPDATE OR DELETE ON resources
             FOR EACH ROW EXECUTE FUNCTION trg_vault_statistics_fn();

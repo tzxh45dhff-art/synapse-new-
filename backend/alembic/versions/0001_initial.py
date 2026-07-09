@@ -18,36 +18,8 @@ def upgrade() -> None:
     op.execute('CREATE EXTENSION IF NOT EXISTS "vector"')
     op.execute('CREATE EXTENSION IF NOT EXISTS "pg_trgm"')
 
-    # ── RLS Helper Functions ────────────────────────────────────────────────
-    op.execute("""
-        CREATE OR REPLACE FUNCTION get_user_squad_ids()
-        RETURNS SETOF UUID
-        LANGUAGE sql
-        SECURITY DEFINER
-        STABLE
-        AS $$
-            SELECT squad_id FROM public.squad_members
-            WHERE user_id = auth.uid()
-            AND removed_at IS NULL;
-        $$;
-    """)
+    # Helper functions moved below after table definitions to prevent UndefinedTableError
 
-    op.execute("""
-        CREATE OR REPLACE FUNCTION has_squad_role(target_squad_id UUID, required_roles TEXT[])
-        RETURNS BOOLEAN
-        LANGUAGE sql
-        SECURITY DEFINER
-        STABLE
-        AS $$
-            SELECT EXISTS (
-                SELECT 1 FROM public.squad_members
-                WHERE user_id = auth.uid()
-                AND squad_id = target_squad_id
-                AND role = ANY(required_roles)
-                AND removed_at IS NULL
-            );
-        $$;
-    """)
 
     op.execute("""
         CREATE OR REPLACE FUNCTION handle_new_user()
@@ -56,20 +28,22 @@ def upgrade() -> None:
         SECURITY DEFINER
         AS $$
         BEGIN
-            INSERT INTO public.profiles (id, email, full_name, avatar_url)
+            INSERT INTO public.profiles (id, email, full_name, avatar_url, university, onboarding_completed)
             VALUES (
                 new.id,
                 new.email,
                 new.raw_user_meta_data->>'full_name',
-                new.raw_user_meta_data->>'avatar_url'
+                new.raw_user_meta_data->>'avatar_url',
+                new.raw_user_meta_data->>'university',
+                COALESCE((new.raw_user_meta_data->>'onboarding_completed')::boolean, true)
             );
             RETURN new;
         END;
         $$;
     """)
 
+    op.execute("DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users")
     op.execute("""
-        DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
         CREATE TRIGGER on_auth_user_created
             AFTER INSERT ON auth.users
             FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
@@ -131,6 +105,37 @@ def upgrade() -> None:
         sa.Column("removed_at", sa.DateTime(timezone=True)),
         sa.UniqueConstraint("squad_id", "user_id", name="uq_squad_members"),
     )
+
+    # ── RLS Helper Functions (defined after squad_members table) ────────────
+    op.execute("""
+        CREATE OR REPLACE FUNCTION get_user_squad_ids()
+        RETURNS SETOF UUID
+        LANGUAGE sql
+        SECURITY DEFINER
+        STABLE
+        AS $$
+            SELECT squad_id FROM public.squad_members
+            WHERE user_id = auth.uid()
+            AND removed_at IS NULL;
+        $$;
+    """)
+
+    op.execute("""
+        CREATE OR REPLACE FUNCTION has_squad_role(target_squad_id UUID, required_roles TEXT[])
+        RETURNS BOOLEAN
+        LANGUAGE sql
+        SECURITY DEFINER
+        STABLE
+        AS $$
+            SELECT EXISTS (
+                SELECT 1 FROM public.squad_members
+                WHERE user_id = auth.uid()
+                AND squad_id = target_squad_id
+                AND role = ANY(required_roles)
+                AND removed_at IS NULL
+            );
+        $$;
+    """)
 
     op.create_table(
         "invitations",
@@ -213,7 +218,7 @@ def upgrade() -> None:
         sa.Column("token_count", sa.Integer, nullable=False),
         sa.Column("page_number", sa.Integer),
         sa.Column("heading", sa.String(500)),
-        sa.Column("embedding", Vector(3072)),
+        sa.Column("embedding", Vector(1536)),
         sa.Column("embedding_model", sa.String(100), server_default="text-embedding-3-small"),
         sa.Column("embedding_dimensions", sa.Integer, server_default="1536"),
         sa.Column("metadata", sa.dialects.postgresql.JSONB, server_default="{}"),

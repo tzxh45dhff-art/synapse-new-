@@ -2,7 +2,7 @@
 
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
 
-import { cn } from "@/lib/utils"
+import { asChildProps, cn } from "@/lib/utils"
 
 function TooltipProvider({
   delay = 0,
@@ -17,12 +17,27 @@ function TooltipProvider({
   )
 }
 
-function Tooltip({ ...props }: TooltipPrimitive.Root.Props) {
+function Tooltip({
+  // Accept (and ignore) the Radix-style `delayDuration` alias for call-site
+  // compatibility — base-ui configures delay on <TooltipProvider>, not Root.
+  delayDuration: _delayDuration,
+  ...props
+}: TooltipPrimitive.Root.Props & { delayDuration?: number }) {
   return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
 }
 
-function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+function TooltipTrigger({
+  asChild,
+  children,
+  ...props
+}: TooltipPrimitive.Trigger.Props & { asChild?: boolean }) {
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      {...asChildProps(asChild, children)}
+      {...props}
+    />
+  )
 }
 
 function TooltipContent({

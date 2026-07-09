@@ -54,7 +54,16 @@ class SquadMember(Base):
     removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     squad: Mapped["Squad"] = relationship(back_populates="members")
-    profile: Mapped["Profile"] = relationship(foreign_keys=[user_id], lazy="joined")
+    # user_id and profiles.id both reference auth.users.id independently (no
+    # direct FK between squad_members and profiles), so the join must be
+    # spelled out explicitly.
+    profile: Mapped["Profile"] = relationship(
+        "Profile",
+        primaryjoin="SquadMember.user_id == Profile.id",
+        foreign_keys="[SquadMember.user_id]",
+        viewonly=True,
+        lazy="joined",
+    )
 
 
 class Invitation(Base):

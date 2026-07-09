@@ -1,7 +1,10 @@
 "use client";
 
-import { use, useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { notFound } from "next/navigation";
+import { useEffect } from "react";
+import { api } from "@/lib/api-client";
 import { VaultHeader } from "@/components/vaults/vault-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,16 +15,15 @@ import { updateVault } from "@/app/actions/vaults/update-vault";
 import { archiveVault } from "@/app/actions/vaults/archive-vault";
 import { restoreVault } from "@/app/actions/vaults/restore-vault";
 import { deleteVault } from "@/app/actions/vaults/delete-vault";
-import { getVault } from "@/app/actions/vaults/queries";
 import type { VaultDetail } from "@/types/vault";
 import { Archive, ArchiveRestore, Loader2, Trash2 } from "lucide-react";
 
 interface Props {
-  params: Promise<{ id: string; vaultId: string }>;
+  params: { id: string; vaultId: string };
 }
 
 export default function VaultSettingsPage({ params }: Props) {
-  const { id: squadId, vaultId } = use(params);
+  const { id: squadId, vaultId } = params;
   const router = useRouter();
 
   const [vault, setVault] = useState<VaultDetail | null>(null);
@@ -33,13 +35,12 @@ export default function VaultSettingsPage({ params }: Props) {
   const [deleteConfirm, setDeleteConfirm] = useState("");
 
   useEffect(() => {
-    getVault(vaultId)
-      .then((v) => {
-        setVault(v);
-        setTitle(v.title);
-        setDescription(v.description ?? "");
-      })
-      .finally(() => setLoading(false));
+    api.get<VaultDetail>(`/vaults/${vaultId}`).then((v) => {
+      setVault(v);
+      setTitle(v.title);
+      setDescription(v.description ?? "");
+      setLoading(false);
+    });
   }, [vaultId]);
 
   function handleSave(e: React.FormEvent) {

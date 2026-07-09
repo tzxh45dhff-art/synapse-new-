@@ -136,8 +136,7 @@ async def create_vault(
 
     await _log(db, user.id, "vault.created", squad_id, vault_id=str(vault.id), title=vault.title)
     await db.commit()
-    await db.refresh(vault)
-    return vault
+    return await _get_active_vault(db, vault.id)
 
 
 async def list_vaults(

@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 import structlog
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, func, select, update, String
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -422,7 +423,7 @@ async def get_members(
         .order_by(
             # Owner first, then admin, then member, then viewer
             func.array_position(
-                func.cast(["owner", "admin", "member", "viewer"], type_=None),
+                func.cast(["owner", "admin", "member", "viewer"], ARRAY(String)),
                 SquadMember.role,
             ),
             SquadMember.joined_at.asc(),

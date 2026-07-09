@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { api } from "@/lib/api-client";
+import { authedApi } from "@/lib/server-api";
 import type { UploadCompleteResponse } from "@/types/vault";
 
 export async function completeUpload(
@@ -10,6 +10,7 @@ export async function completeUpload(
   storagePath: string,
   squadId: string,
 ): Promise<UploadCompleteResponse> {
+  const api = await authedApi();
   const res = await api.post<UploadCompleteResponse>(
     `/vaults/${vaultId}/resources/upload-complete`,
     { resource_id: resourceId, storage_path: storagePath },

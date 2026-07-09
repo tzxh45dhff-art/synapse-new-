@@ -1,7 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-export async function middleware(request: NextRequest) {
+// Next.js 16 renamed the "middleware" convention to "proxy". Same behavior:
+// runs on every matched request to refresh the Supabase session and gate
+// protected/onboarding routes.
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -43,7 +46,7 @@ export async function middleware(request: NextRequest) {
     "/auth/error",
     "/verify-email"
   ];
-  
+
   const isPublicRoute = publicRoutes.some((route) => pathname === route || pathname.startsWith(route));
 
   // Redirect unauthenticated users to login if they try to access protected routes

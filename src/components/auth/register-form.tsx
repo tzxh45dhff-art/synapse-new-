@@ -19,6 +19,7 @@ const registerSchema = z.object({
   full_name: z.string().min(2, { message: "Name must be at least 2 characters." }),
   email: z.string().email({ message: "Please enter a valid email address." }),
   password: z.string().min(8, { message: "Password must be at least 8 characters." }),
+  university: z.string().min(2, { message: "University name must be at least 2 characters." }),
 });
 
 type RegisterFormValues = z.infer<typeof registerSchema>;
@@ -33,6 +34,7 @@ export function RegisterForm() {
       full_name: "",
       email: "",
       password: "",
+      university: "",
     },
   });
 
@@ -42,6 +44,7 @@ export function RegisterForm() {
       formData.append("full_name", data.full_name);
       formData.append("email", data.email);
       formData.append("password", data.password);
+      formData.append("university", data.university);
       
       const result = await signUp(formData);
       
@@ -66,6 +69,21 @@ export function RegisterForm() {
             {form.formState.errors.full_name && (
               <p className="text-sm text-destructive">
                 {form.formState.errors.full_name.message}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="university">University Name</Label>
+            <Input
+              id="university"
+              placeholder="Harvard University"
+              disabled={isPending || isGooglePending}
+              {...form.register("university")}
+            />
+            {form.formState.errors.university && (
+              <p className="text-sm text-destructive">
+                {form.formState.errors.university.message}
               </p>
             )}
           </div>

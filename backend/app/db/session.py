@@ -1,3 +1,5 @@
+import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import text
@@ -27,6 +29,20 @@ AsyncSessionLocal = async_sessionmaker(
 # ---------------------------------------------------------------------------
 class Base(DeclarativeBase):
     pass
+
+
+# Supabase's auth.users table is managed outside this app's migrations. Every
+# model FK's it by string ("auth.users.id"); without a real Table object in
+# Base.metadata, SQLAlchemy can't resolve those FKs during mapper/dependency
+# sorts (e.g. on flush). Declare a minimal shadow — id only, just enough for
+# FK resolution — and keep it out of autogenerate via alembic/env.py's
+# include_object.
+sa.Table(
+    "users",
+    Base.metadata,
+    sa.Column("id", PGUUID(as_uuid=True), primary_key=True),
+    schema="auth",
+)
 
 
 # ---------------------------------------------------------------------------

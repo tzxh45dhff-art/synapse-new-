@@ -1,13 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { api } from "@/lib/api-client";
+import { authedApi } from "@/lib/server-api";
 
 export async function deleteResource(
   resourceId: string,
   squadId: string,
   vaultId: string,
 ): Promise<void> {
-  await api.delete(`/resources/${resourceId}`);
+  const api = await authedApi();
+  await api.del<void>(`/resources/${resourceId}`);
   revalidatePath(`/dashboard/squads/${squadId}/vaults/${vaultId}/resources`);
 }

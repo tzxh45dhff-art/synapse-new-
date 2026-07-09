@@ -19,6 +19,7 @@ export async function signUp(formData: FormData) {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
   const fullName = formData.get("full_name") as string;
+  const university = formData.get("university") as string;
 
   const supabase = await createClient();
   const origin = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -30,7 +31,8 @@ export async function signUp(formData: FormData) {
       emailRedirectTo: `${origin}/auth/callback`,
       data: {
         full_name: fullName,
-        onboarding_completed: false,
+        university: university,
+        onboarding_completed: true,
       },
     },
   });
@@ -39,5 +41,5 @@ export async function signUp(formData: FormData) {
     return { error: error.message };
   }
 
-  redirect("/verify-email");
+  redirect("/dashboard");
 }
