@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Search, Archive } from "lucide-react";
 import { listVaults, listSubjects } from "@/app/actions/vaults/queries";
 import { VaultCard } from "@/components/vaults/vault-card";
 import { VaultGridSkeleton } from "@/components/vaults/vault-skeleton";
@@ -41,15 +41,15 @@ export default async function VaultsPage({ params, searchParams }: Props) {
     <div className="space-y-8">
       <Link
         href={`/dashboard/squads/${squadId}`}
-        className="inline-flex items-center gap-1.5 text-sm text-zinc-500 transition-colors hover:text-zinc-200"
+        className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-200 uppercase tracking-wider"
       >
-        <ArrowLeft className="h-4 w-4" /> Back to Squad
+        <ArrowLeft className="h-3.5 w-3.5" /> Back to Squad
       </Link>
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between border-b border-white/[0.04] pb-5">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Vaults</h1>
+          <h1 className="text-3xl font-bold text-white tracking-tight">Vaults</h1>
           <p className="text-sm text-zinc-500 mt-1">
             Collaborative workspaces for each subject
           </p>
@@ -58,24 +58,26 @@ export default async function VaultsPage({ params, searchParams }: Props) {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3">
-        <form className="flex-1">
+      <div className="flex flex-col sm:flex-row gap-3">
+        <form className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-600" />
           <input
             name="q"
             defaultValue={q}
             placeholder="Search vaults…"
-            className="w-full max-w-xs px-3 py-2 rounded-lg text-sm
-              bg-white/[0.04] border border-white/[0.08] text-white
-              placeholder:text-zinc-600 outline-none focus:border-violet-500/50"
+            className="w-full pl-9 pr-4 py-2 rounded-xl text-sm
+              bg-zinc-950/20 border border-white/[0.06] text-white backdrop-blur-md
+              placeholder:text-zinc-600 outline-none focus:border-violet-500/50 focus:bg-zinc-900/30 transition-all duration-200"
           />
         </form>
         <a
           href={`?${showArchived ? "" : "archived=true"}`}
-          className={`px-3 py-2 rounded-lg text-sm border transition-colors
+          className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm border backdrop-blur-md transition-all duration-200
             ${showArchived
-              ? "border-violet-500/40 text-violet-400 bg-violet-950/20"
-              : "border-white/[0.08] text-zinc-500 hover:text-zinc-300 bg-white/[0.02]"}`}
+              ? "border-violet-500/40 text-violet-400 bg-violet-950/20 hover:bg-violet-950/30"
+              : "border-white/[0.06] text-zinc-400 hover:text-zinc-200 bg-zinc-950/20 hover:bg-zinc-900/30"}`}
         >
+          <Archive className="h-4 w-4" />
           {showArchived ? "Hide Archived" : "Show Archived"}
         </a>
       </div>

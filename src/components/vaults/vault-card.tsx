@@ -30,6 +30,15 @@ const GRADIENT_PRESETS = [
   "from-indigo-600/20 to-blue-600/10",
 ];
 
+const SHADOW_PRESETS = [
+  "shadow-[0_0_30px_-15px_rgba(167,139,250,0.15)] hover:shadow-[0_0_30px_-5px_rgba(167,139,250,0.25)] hover:border-purple-500/30",
+  "shadow-[0_0_30px_-15px_rgba(56,189,248,0.15)] hover:shadow-[0_0_30px_-5px_rgba(56,189,248,0.25)] hover:border-sky-500/30",
+  "shadow-[0_0_30px_-15px_rgba(52,211,153,0.15)] hover:shadow-[0_0_30px_-5px_rgba(52,211,153,0.25)] hover:border-emerald-500/30",
+  "shadow-[0_0_30px_-15px_rgba(251,146,60,0.15)] hover:shadow-[0_0_30px_-5px_rgba(251,146,60,0.25)] hover:border-orange-500/30",
+  "shadow-[0_0_30px_-15px_rgba(251,113,133,0.15)] hover:shadow-[0_0_30px_-5px_rgba(251,113,133,0.25)] hover:border-rose-500/30",
+  "shadow-[0_0_30px_-15px_rgba(129,140,248,0.15)] hover:shadow-[0_0_30px_-5px_rgba(129,140,248,0.25)] hover:border-indigo-500/30",
+];
+
 export function VaultCard({ vault, squadId, index = 0 }: VaultCardProps) {
   const gradient = vault.color
     ? undefined
@@ -40,32 +49,52 @@ export function VaultCard({ vault, squadId, index = 0 }: VaultCardProps) {
     ? { background: `linear-gradient(135deg, ${vault.color}33, ${vault.color}11)` }
     : undefined;
 
+  const shadowPreset = vault.color
+    ? ""
+    : SHADOW_PRESETS[index % SHADOW_PRESETS.length];
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05, duration: 0.3 }}
-      whileHover={{ y: -3, transition: { duration: 0.15 } }}
+      whileHover={{ y: -4, transition: { duration: 0.2, ease: "easeOut" } }}
     >
       <Link href={`/dashboard/squads/${squadId}/vaults/${vault.id}`}>
         <div
-          className={`relative group rounded-2xl border border-white/[0.06] bg-white/[0.03]
-            hover:border-white/[0.12] hover:bg-white/[0.06] transition-all duration-200
-            overflow-hidden cursor-pointer`}
+          className={`relative group rounded-2xl border border-white/[0.06] bg-zinc-950/20 backdrop-blur-md
+            hover:border-white/[0.15] hover:bg-zinc-900/40 transition-all duration-300
+            overflow-hidden cursor-pointer ${shadowPreset}`}
+          style={vault.color ? {
+            boxShadow: `0 0 30px -15px ${vault.color}33`,
+          } : undefined}
         >
-          {/* Accent gradient banner */}
-          <div
-            className={`h-1.5 w-full ${gradient ? `bg-gradient-to-r ${gradient}` : ""}`}
-            style={vault.color ? { background: vault.color } : undefined}
-          />
+          {/* Ambient background glow inside the card */}
+          {gradient ? (
+            <div className={`absolute -right-12 -top-12 w-28 h-28 rounded-full blur-[40px] opacity-10 group-hover:opacity-20 transition-opacity duration-300 pointer-events-none bg-gradient-to-br ${gradient}`} />
+          ) : (
+            <div 
+              className="absolute -right-12 -top-12 w-28 h-28 rounded-full blur-[40px] opacity-10 group-hover:opacity-20 transition-opacity duration-300 pointer-events-none"
+              style={vault.color ? { backgroundColor: `${vault.color}22` } : undefined}
+            />
+          )}
 
-          <div className="p-5 space-y-4">
+          {/* Accent neon top border */}
+          <div className="absolute top-0 left-0 right-0 h-[2px] overflow-hidden">
+            <div 
+              className={`h-full w-full opacity-60 group-hover:opacity-100 transition-opacity duration-300
+                ${gradient ? `bg-gradient-to-r ${gradient}` : ""}`}
+              style={vault.color ? { backgroundColor: vault.color } : undefined}
+            />
+          </div>
+
+          <div className="p-5 space-y-4 relative z-10">
             {/* Header */}
-            <div className="flex items-start gap-3">
+            <div className="flex items-start gap-3.5">
               <div
-                className={`w-11 h-11 rounded-xl flex items-center justify-center text-2xl
-                  border border-white/[0.08] shrink-0
-                  ${gradient ? `bg-gradient-to-br ${gradient}` : "bg-white/[0.06]"}`}
+                className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl
+                  border border-white/[0.08] shrink-0 shadow-inner group-hover:scale-110 transition-transform duration-300
+                  ${gradient ? `bg-gradient-to-br ${gradient}` : "bg-white/[0.04]"}`}
                 style={accentStyle}
               >
                 {vault.icon ?? "📚"}
@@ -73,7 +102,7 @@ export function VaultCard({ vault, squadId, index = 0 }: VaultCardProps) {
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <h3 className="font-semibold text-white truncate text-[15px] leading-tight">
+                  <h3 className="font-semibold text-white truncate text-[15px] leading-tight group-hover:text-white transition-colors">
                     {vault.title}
                   </h3>
                   {vault.is_archived && (
@@ -81,7 +110,7 @@ export function VaultCard({ vault, squadId, index = 0 }: VaultCardProps) {
                   )}
                 </div>
                 {vault.subject && (
-                  <p className="text-xs text-zinc-500 mt-0.5">
+                  <p className="text-xs text-zinc-500 mt-0.5 group-hover:text-zinc-400 transition-colors">
                     {vault.subject.icon} {vault.subject.name}
                   </p>
                 )}
@@ -90,24 +119,24 @@ export function VaultCard({ vault, squadId, index = 0 }: VaultCardProps) {
 
             {/* Description */}
             {vault.description && (
-              <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">
+              <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed min-h-[36px]">
                 {vault.description}
               </p>
             )}
 
             {/* Stats row */}
-            <div className="flex items-center gap-4 pt-1">
-              <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-                <FileText className="w-3.5 h-3.5" />
-                <span>{stats?.resource_count ?? 0} resources</span>
+            <div className="flex items-center gap-4 pt-3 border-t border-white/[0.04] group-hover:border-white/[0.08] transition-colors duration-300">
+              <div className="flex items-center gap-1.5 text-xs text-zinc-500 group-hover:text-zinc-400 transition-colors">
+                <FileText className="w-3.5 h-3.5 text-zinc-600 group-hover:text-violet-400 transition-colors" />
+                <span>{stats?.resource_count ?? 0} files</span>
               </div>
               {stats && stats.storage_bytes > 0 && (
-                <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-                  <HardDrive className="w-3.5 h-3.5" />
+                <div className="flex items-center gap-1.5 text-xs text-zinc-500 group-hover:text-zinc-400 transition-colors">
+                  <HardDrive className="w-3.5 h-3.5 text-zinc-600 group-hover:text-violet-400 transition-colors" />
                   <span>{formatBytes(stats.storage_bytes)}</span>
                 </div>
               )}
-              <div className="ml-auto text-xs text-zinc-600">
+              <div className="ml-auto text-xs text-zinc-600 group-hover:text-zinc-500 transition-colors">
                 {formatDistanceToNow(new Date(vault.updated_at), { addSuffix: true })}
               </div>
             </div>
