@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
-import { Sparkles, Search, FileText } from "lucide-react";
+import { ArrowLeft, Sparkles, Search, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -61,6 +61,13 @@ export default function NotesDashboardPage({ params }: Props) {
 
   return (
     <div className="space-y-6">
+      <Link
+        href={`/dashboard/squads/${squadId}/vaults/${vaultId}`}
+        className="inline-flex items-center gap-1.5 text-sm text-zinc-500 transition-colors hover:text-zinc-200"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back to Vault
+      </Link>
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-white">Notes</h1>

@@ -1,4 +1,6 @@
 import { Suspense } from "react";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { listVaults, listSubjects } from "@/app/actions/vaults/queries";
 import { VaultCard } from "@/components/vaults/vault-card";
 import { VaultGridSkeleton } from "@/components/vaults/vault-skeleton";
@@ -37,6 +39,13 @@ export default async function VaultsPage({ params, searchParams }: Props) {
   const showArchived = archived === "true";
   return (
     <div className="space-y-8">
+      <Link
+        href={`/dashboard/squads/${squadId}`}
+        className="inline-flex items-center gap-1.5 text-sm text-zinc-500 transition-colors hover:text-zinc-200"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back to Squad
+      </Link>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SquadTabsProps {
@@ -19,7 +20,14 @@ export function SquadTabs({ squadId }: SquadTabsProps) {
   const base = `/dashboard/squads/${squadId}`;
 
   return (
-    <div className="border-b border-border/50">
+    <div>
+      <Link
+        href="/dashboard/squads"
+        className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back to Squads
+      </Link>
+      <div className="border-b border-border/50">
       <nav className="-mb-px flex gap-6">
         {tabs.map((tab) => {
           const href = `${base}${tab.href}`;
@@ -43,6 +51,7 @@ export function SquadTabs({ squadId }: SquadTabsProps) {
           );
         })}
       </nav>
+      </div>
     </div>
   );
 }

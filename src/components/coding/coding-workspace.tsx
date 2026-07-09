@@ -43,6 +43,17 @@ const MONACO_LANGS: Record<string, string> = {
   go: "go",
 };
 
+const handleEditorWillMount = (monaco: any) => {
+  monaco.editor.defineTheme("custom-dark", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [],
+    colors: {
+      "editor.background": "#09090b",
+    },
+  });
+};
+
 export function CodingWorkspace({ question, vaultId, onBack }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("description");
   const [code, setCode] = useState(question.code_snippet ?? "");
@@ -285,7 +296,8 @@ export function CodingWorkspace({ question, vaultId, onBack }: Props) {
           <Editor
             height="100%"
             language={langKey}
-            theme="vs-dark"
+            theme="custom-dark"
+            beforeMount={handleEditorWillMount}
             value={code}
             onChange={(val) => setCode(val ?? "")}
             loading={
@@ -305,9 +317,6 @@ export function CodingWorkspace({ question, vaultId, onBack }: Props) {
               scrollBeyondLastLine: false,
               lineNumbersMinChars: 3,
               padding: { top: 12, bottom: 12 },
-              colors: {
-                "editor.background": "#09090b",
-              }
             }}
           />
         </div>

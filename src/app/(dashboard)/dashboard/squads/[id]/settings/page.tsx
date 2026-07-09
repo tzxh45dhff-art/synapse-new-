@@ -76,17 +76,17 @@ export default function SettingsPage() {
   const isAdmin = squad.current_user_role === "admin" || isOwner;
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{squad.name}</h1>
-        <p className="text-sm text-muted-foreground">Squad settings</p>
+        <p className="text-sm text-white/50">Squad settings</p>
       </div>
 
       <SquadTabs squadId={squadId} />
 
       {/* General settings */}
       {isAdmin && (
-        <div className="rounded-xl border border-border/50 bg-card p-6">
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-6 backdrop-blur-sm">
           <h3 className="text-lg font-semibold">General</h3>
           <Separator className="my-4" />
           <form onSubmit={handleSave} className="space-y-4 max-w-lg">
@@ -124,8 +124,8 @@ export default function SettingsPage() {
       )}
 
       {/* Danger zone */}
-      <div className="rounded-xl border border-destructive/20 bg-card p-6">
-        <h3 className="text-lg font-semibold text-destructive">Danger Zone</h3>
+      <div className="rounded-2xl border border-red-900/30 bg-red-950/10 p-6 backdrop-blur-sm">
+        <h3 className="text-lg font-semibold text-red-400">Danger Zone</h3>
         <Separator className="my-4" />
         <div className="space-y-4">
           {isOwner && (

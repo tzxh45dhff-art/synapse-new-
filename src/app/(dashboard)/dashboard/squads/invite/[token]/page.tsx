@@ -121,7 +121,7 @@ export default function InvitePage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-sm rounded-2xl border border-border/50 bg-card p-8 text-center shadow-lg"
+        className="w-full max-w-sm rounded-2xl border border-white/[0.08] bg-white/[0.03] p-8 text-center shadow-lg backdrop-blur-sm"
       >
         <div className="flex justify-center">
           <SquadAvatar
