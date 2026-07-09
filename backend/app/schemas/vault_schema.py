@@ -44,7 +44,8 @@ class VaultStatsRead(BunkerBaseModel):
 
 class VaultCreate(BunkerBaseModel):
     title: str = Field(..., min_length=1, max_length=255)
-    subject_id: UUID
+    subject_name: str = Field(..., min_length=1, max_length=200)
+    is_coding: bool = Field(False)
     description: str | None = Field(None, max_length=2000)
     color: str | None = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
     icon: str | None = Field(None, max_length=50)
@@ -52,7 +53,8 @@ class VaultCreate(BunkerBaseModel):
 
 class VaultUpdate(BunkerBaseModel):
     title: str | None = Field(None, min_length=1, max_length=255)
-    subject_id: UUID | None = None
+    subject_name: str | None = Field(None, min_length=1, max_length=200)
+    is_coding: bool | None = None
     description: str | None = Field(None, max_length=2000)
     color: str | None = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
     icon: str | None = Field(None, max_length=50)

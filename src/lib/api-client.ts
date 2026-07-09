@@ -43,7 +43,12 @@ async function request<T>(
       };
     }
 
-    const data: T = await response.json();
+    if (response.status === 204) {
+      return { data: {} as T, error: null, status: response.status };
+    }
+
+    const text = await response.text();
+    const data: T = text ? JSON.parse(text) : ({} as T);
     return { data, error: null, status: response.status };
   } catch (err) {
     return {

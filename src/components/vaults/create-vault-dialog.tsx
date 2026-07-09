@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Check, Loader2, Plus, Sparkles } from "lucide-react";
+import { Check, Code2, Loader2, Plus, Sparkles } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -11,12 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import {
-  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
-} from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { createVault } from "@/app/actions/vaults/create-vault";
-import type { SubjectItem } from "@/types/vault";
 
 const ACCENT_COLORS = [
   "#8B5CF6", "#3B82F6", "#10B981", "#F59E0B",
@@ -27,42 +22,45 @@ const VAULT_ICONS = ["📚", "🧠", "💡", "🔬", "📐", "🌐", "⚡", "�
 
 interface CreateVaultDialogProps {
   squadId: string;
-  subjects: SubjectItem[];
   trigger?: React.ReactNode;
 }
 
-export function CreateVaultDialog({ squadId, subjects, trigger }: CreateVaultDialogProps) {
+export function CreateVaultDialog({ squadId, trigger }: CreateVaultDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [subjectOpen, setSubjectOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
+  const [subjectName, setSubjectName] = useState("");
+  const [isCoding, setIsCoding] = useState(false);
   const [description, setDescription] = useState("");
-  const [selectedSubject, setSelectedSubject] = useState<SubjectItem | null>(null);
   const [selectedColor, setSelectedColor] = useState(ACCENT_COLORS[0]);
   const [selectedIcon, setSelectedIcon] = useState("📚");
+  const [iconOpen, setIconOpen] = useState(false);
 
   function reset() {
     setTitle("");
+    setSubjectName("");
+    setIsCoding(false);
     setDescription("");
-    setSelectedSubject(null);
     setSelectedColor(ACCENT_COLORS[0]);
     setSelectedIcon("📚");
     setError(null);
+    setIconOpen(false);
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedSubject) { setError("Please select a subject."); return; }
     if (!title.trim()) { setError("Title is required."); return; }
+    if (!subjectName.trim()) { setError("Subject is required."); return; }
 
     startTransition(async () => {
       try {
         const vault = await createVault(squadId, {
           title: title.trim(),
-          subject_id: selectedSubject.id,
+          subject_name: subjectName.trim(),
+          is_coding: isCoding,
           description: description.trim() || undefined,
           color: selectedColor,
           icon: selectedIcon,
@@ -100,26 +98,30 @@ export function CreateVaultDialog({ squadId, subjects, trigger }: CreateVaultDia
             {/* Icon picker */}
             <div className="space-y-1.5">
               <Label className="text-xs text-zinc-400">Icon</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline"
-                    className="w-14 h-10 text-xl border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.08]">
-                    {selectedIcon}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-52 p-2 bg-zinc-900 border-white/[0.08]">
-                  <div className="grid grid-cols-6 gap-1">
-                    {VAULT_ICONS.map((icon) => (
-                      <button key={icon} type="button"
-                        onClick={() => setSelectedIcon(icon)}
-                        className={`text-xl p-1.5 rounded-md hover:bg-white/[0.08] transition-colors
-                          ${selectedIcon === icon ? "bg-white/[0.12] ring-1 ring-violet-500/50" : ""}`}>
-                        {icon}
-                      </button>
-                    ))}
+              <div className="relative">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIconOpen(!iconOpen)}
+                  className="w-14 h-10 text-xl border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.08]"
+                >
+                  {selectedIcon}
+                </Button>
+                {iconOpen && (
+                  <div className="absolute top-12 left-0 z-50 w-52 p-2 bg-zinc-900 border border-white/[0.08] rounded-xl shadow-xl">
+                    <div className="grid grid-cols-6 gap-1">
+                      {VAULT_ICONS.map((icon) => (
+                        <button key={icon} type="button"
+                          onClick={() => { setSelectedIcon(icon); setIconOpen(false); }}
+                          className={`text-xl p-1.5 rounded-md hover:bg-white/[0.08] transition-colors
+                            ${selectedIcon === icon ? "bg-white/[0.12] ring-1 ring-violet-500/50" : ""}`}>
+                          {icon}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </PopoverContent>
-              </Popover>
+                )}
+              </div>
             </div>
 
             {/* Color picker */}
@@ -142,61 +144,51 @@ export function CreateVaultDialog({ squadId, subjects, trigger }: CreateVaultDia
 
           {/* Title */}
           <div className="space-y-1.5">
-            <Label htmlFor="vault-title" className="text-xs text-zinc-400">Title *</Label>
-            <Input id="vault-title" value={title} onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Data Structures & Algorithms"
+            <Label htmlFor="cv-title" className="text-xs text-zinc-400">Title *</Label>
+            <Input
+              id="cv-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Operating Systems"
               className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-zinc-600"
             />
           </div>
 
-          {/* Subject */}
+          {/* Subject + is_coding */}
           <div className="space-y-1.5">
-            <Label className="text-xs text-zinc-400">Subject *</Label>
-            <Popover open={subjectOpen} onOpenChange={setSubjectOpen}>
-              <PopoverTrigger asChild>
-                <Button variant="outline"
-                  className="w-full justify-start bg-white/[0.04] border-white/[0.08]
-                    text-white hover:bg-white/[0.08] font-normal">
-                  {selectedSubject
-                    ? <>{selectedSubject.icon} {selectedSubject.name}</>
-                    : <span className="text-zinc-500">Select subject...</span>}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="p-0 w-72 bg-zinc-900 border-white/[0.08]">
-                <Command className="bg-transparent">
-                  <CommandInput placeholder="Search subjects..." className="text-white" />
-                  <CommandList>
-                    <CommandEmpty className="text-zinc-500 text-sm py-4 text-center">
-                      No subjects found.
-                    </CommandEmpty>
-                    <CommandGroup>
-                      {subjects.map((s) => (
-                        <CommandItem key={s.id} value={s.name}
-                          onSelect={() => { setSelectedSubject(s); setSubjectOpen(false); }}
-                          className="text-white hover:bg-white/[0.08] cursor-pointer gap-2">
-                          <span>{s.icon}</span>
-                          <span>{s.name}</span>
-                          {selectedSubject?.id === s.id && (
-                            <Check className="w-4 h-4 ml-auto text-violet-400" />
-                          )}
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+            <Label htmlFor="cv-subject" className="text-xs text-zinc-400">Subject *</Label>
+            <Input
+              id="cv-subject"
+              value={subjectName}
+              onChange={(e) => setSubjectName(e.target.value)}
+              placeholder="e.g. Data Structures, Physics, History…"
+              className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-zinc-600"
+            />
+            {/* Coding toggle */}
+            <button
+              type="button"
+              onClick={() => setIsCoding(!isCoding)}
+              className={`mt-1 flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all
+                ${isCoding
+                  ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-400"
+                  : "border-white/[0.06] bg-white/[0.02] text-zinc-500 hover:text-zinc-300 hover:border-white/[0.12]"
+                }`}
+            >
+              <Code2 className="w-3.5 h-3.5" />
+              {isCoding ? "Coding subject ✓" : "Mark as coding subject"}
+            </button>
           </div>
 
           {/* Description */}
           <div className="space-y-1.5">
-            <Label htmlFor="vault-desc" className="text-xs text-zinc-400">Description</Label>
-            <Textarea id="vault-desc" value={description}
+            <Label htmlFor="cv-desc" className="text-xs text-zinc-400">Description</Label>
+            <Textarea
+              id="cv-desc"
+              value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What is this vault for?"
               rows={2}
-              className="bg-white/[0.04] border-white/[0.08] text-white
-                placeholder:text-zinc-600 resize-none"
+              className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-zinc-600 resize-none"
             />
           </div>
 
@@ -208,8 +200,11 @@ export function CreateVaultDialog({ squadId, subjects, trigger }: CreateVaultDia
               onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isPending || !title.trim() || !selectedSubject}
-              className="flex-1 bg-violet-600 hover:bg-violet-500 text-white gap-2">
+            <Button
+              type="submit"
+              disabled={isPending || !title.trim() || !subjectName.trim()}
+              className="flex-1 bg-violet-600 hover:bg-violet-500 text-white gap-2"
+            >
               {isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating...</> : "Create Vault"}
             </Button>
           </div>

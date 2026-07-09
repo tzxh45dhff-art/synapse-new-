@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { api } from "@/lib/api-client";
+import { authedApi } from "@/lib/server-api";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { SquadListItem } from "@/types/squad";
@@ -20,16 +20,9 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  // Fetch user's squads for sidebar
-  const { data: { session } } = await supabase.auth.getSession();
-  let squads: SquadListItem[] = [];
-
-  if (session) {
-    const result = await api.get<SquadListItem[]>("/api/v1/squads", {
-      token: session.access_token,
-    });
-    squads = result.data ?? [];
-  }
+  // Fetch user's squads for sidebar using authedApi
+  const clientApi = await authedApi();
+  const squads = await clientApi.get<SquadListItem[]>("/squads").catch(() => [] as SquadListItem[]);
 
   return (
     <TooltipProvider>

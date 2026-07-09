@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, BookOpen, Loader2, Pencil, RotateCcw, StopCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -25,14 +25,14 @@ import {
 } from "@/types/notes";
 
 interface Props {
-  params: { id: string; vaultId: string; noteId: string };
+  params: Promise<{ id: string; vaultId: string; noteId: string }>;
 }
 
 type Tab = "read" | "edit";
 type SaveState = "idle" | "saving" | "saved";
 
 export default function NoteDetailPage({ params }: Props) {
-  const { id: squadId, vaultId, noteId } = params;
+  const { id: squadId, vaultId, noteId } = use(params);
 
   const [note, setNote] = useState<NoteDetail | null>(null);
   const [versions, setVersions] = useState<NoteVersion[]>([]);

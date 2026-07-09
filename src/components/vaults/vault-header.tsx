@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { Archive, ChevronLeft, Settings } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { VaultDetail } from "@/types/vault";
@@ -22,6 +23,21 @@ interface VaultHeaderProps {
 
 export function VaultHeader({ vault, squadId }: VaultHeaderProps) {
   const stats = vault.statistics;
+  const pathname = usePathname();
+
+  const isCodingSubject =
+    vault.subject?.icon === "💻" ||
+    vault.subject?.name?.toLowerCase().includes("coding") ||
+    vault.subject?.name?.toLowerCase().includes("programming") ||
+    vault.subject?.name?.toLowerCase().includes("dsa") ||
+    vault.subject?.name?.toLowerCase().includes("leetcode");
+
+  const tabs = [
+    { label: "Resources", seg: "resources" },
+    { label: "Notes", seg: "notes" },
+    { label: "MCQ Practice", seg: "mcq" },
+    ...(isCodingSubject ? [{ label: "Coding Questions", seg: "coding" }] : []),
+  ];
 
   return (
     <motion.div
@@ -87,18 +103,23 @@ export function VaultHeader({ vault, squadId }: VaultHeaderProps) {
 
       {/* Section nav */}
       <div className="mt-6 flex items-center gap-1">
-        {[
-          { label: "Resources", seg: "resources" },
-          { label: "Notes", seg: "notes" },
-        ].map((s) => (
-          <Link
-            key={s.seg}
-            href={`/dashboard/squads/${squadId}/vaults/${vault.id}/${s.seg}`}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-white"
-          >
-            {s.label}
-          </Link>
-        ))}
+        {tabs.map((s) => {
+          const href = `/dashboard/squads/${squadId}/vaults/${vault.id}/${s.seg}`;
+          const isActive = pathname === href || pathname.startsWith(href + "/");
+          return (
+            <Link
+              key={s.seg}
+              href={href}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-all
+                ${isActive
+                  ? "bg-violet-600/10 border border-violet-500/20 text-violet-400"
+                  : "text-zinc-400 hover:bg-white/[0.06] hover:text-white"
+                }`}
+            >
+              {s.label}
+            </Link>
+          );
+        })}
       </div>
 
       {/* Stats strip */}

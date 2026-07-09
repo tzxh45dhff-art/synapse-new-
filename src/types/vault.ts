@@ -80,7 +80,8 @@ export interface VaultDetail extends VaultListItem {
 
 export interface CreateVaultInput {
   title: string;
-  subject_id: string;
+  subject_name: string;
+  is_coding?: boolean;
   description?: string;
   color?: string;
   icon?: string;
@@ -88,7 +89,8 @@ export interface CreateVaultInput {
 
 export interface UpdateVaultInput {
   title?: string;
-  subject_id?: string;
+  subject_name?: string;
+  is_coding?: boolean;
   description?: string;
   color?: string;
   icon?: string;

@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from uuid import UUID
+import re
 
 import structlog
 from sqlalchemy import and_, func, or_, select, update
@@ -15,6 +16,25 @@ from app.schemas.auth import CurrentUser
 from app.schemas.vault_schema import VaultCreate, VaultRead, VaultListItem, VaultUpdate
 
 logger = structlog.get_logger()
+
+_CODING_KEYWORDS = frozenset([
+    "coding", "programming", "dsa", "data structures", "algorithms",
+    "leetcode", "competitive", "software", "computer science", "cs",
+    "python", "java", "javascript", "typescript", "c++", "golang",
+    "web development", "backend", "frontend", "devops", "database",
+    "sql", "machine learning", "ml", "ai", "deep learning",
+])
+
+
+def _is_coding_subject(name: str) -> bool:
+    lower = name.lower()
+    return any(kw in lower for kw in _CODING_KEYWORDS)
+
+
+def _slugify(name: str) -> str:
+    slug = name.lower().strip()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    return slug.strip("-")[:200]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -85,6 +105,36 @@ async def list_subjects(db: AsyncSession) -> list[Subject]:
     return list(result.scalars().all())
 
 
+async def _get_or_create_subject(db: AsyncSession, name: str, is_coding: bool) -> Subject:
+    """Fetch an existing subject by name (case-insensitive) or create one."""
+    name_clean = name.strip()
+    result = await db.execute(
+        select(Subject).where(func.lower(Subject.name) == name_clean.lower())
+    )
+    subject = result.scalar_one_or_none()
+    if subject:
+        return subject
+
+    # Auto-detect coding if not explicitly set
+    coding = is_coding or _is_coding_subject(name_clean)
+    icon = "💻" if coding else "📖"
+    slug = _slugify(name_clean)
+
+    # Ensure slug uniqueness by appending a counter if needed
+    existing_slugs = await db.execute(select(Subject.slug).where(Subject.slug.like(f"{slug}%")))
+    taken = set(existing_slugs.scalars().all())
+    final_slug = slug
+    counter = 1
+    while final_slug in taken:
+        final_slug = f"{slug}-{counter}"
+        counter += 1
+
+    subject = Subject(name=name_clean, slug=final_slug, icon=icon)
+    db.add(subject)
+    await db.flush()
+    return subject
+
+
 async def create_vault(
     db: AsyncSession,
     user: CurrentUser,
@@ -117,16 +167,14 @@ async def create_vault(
     if dup.scalar_one_or_none():
         raise ConflictError(f"A vault named '{data.title}' already exists in this squad.")
 
-    # Verify subject exists
-    subj = await db.execute(select(Subject).where(Subject.id == data.subject_id))
-    if not subj.scalar_one_or_none():
-        raise ValidationError("Invalid subject_id.")
+    # Get or create subject by name
+    subject = await _get_or_create_subject(db, data.subject_name, data.is_coding)
 
     vault = Vault(
         squad_id=squad_id,
         created_by=user.id,
         title=data.title.strip(),
-        subject_id=data.subject_id,
+        subject_id=subject.id,
         description=data.description,
         color=data.color,
         icon=data.icon,
@@ -212,11 +260,11 @@ async def update_vault(
             raise ConflictError(f"A vault named '{new_title}' already exists in this squad.")
         vault.title = new_title
 
-    if data.subject_id is not None:
-        subj = await db.execute(select(Subject).where(Subject.id == data.subject_id))
-        if not subj.scalar_one_or_none():
-            raise ValidationError("Invalid subject_id.")
-        vault.subject_id = data.subject_id
+    if data.subject_name is not None:
+        subject = await _get_or_create_subject(
+            db, data.subject_name, data.is_coding or False
+        )
+        vault.subject_id = subject.id
 
     for field in ("description", "color", "icon"):
         val = getattr(data, field, None)

@@ -29,11 +29,18 @@ class Settings(BaseSettings):
 
     # Provider abstraction. Only requirement: swapping providers = new adapter,
     # never touching services. See app/services/ai/.
-    AI_PROVIDER: str = "openai"           # openai | gemini (future)
+    AI_PROVIDER: str = "openai"           # openai | azure | gemini
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIMENSIONS: int = 1536      # MUST match resource_chunks.embedding vector(N)
     LLM_CHAT_MODEL: str = "gpt-4o-mini"   # default generation model
     LLM_MAX_OUTPUT_TOKENS: int = 4096
+
+    # Azure OpenAI (only required when AI_PROVIDER=azure)
+    AZURE_OPENAI_API_KEY: str = ""
+    AZURE_OPENAI_ENDPOINT: str = ""
+    AZURE_OPENAI_API_VERSION: str = "2025-01-01-preview"
+    AZURE_OPENAI_DEPLOYMENT: str = "gpt-4o"               # chat deployment
+    AZURE_EMBEDDING_DEPLOYMENT: str = "text-embedding-3-small"  # embedding deployment
     # Vector search tuning
     VECTOR_SEARCH_TOP_K: int = 20         # candidates fetched before rerank
     VECTOR_SEARCH_RERANK_K: int = 5       # returned after rerank

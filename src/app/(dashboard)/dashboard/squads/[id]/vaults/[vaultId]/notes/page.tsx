@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import { Sparkles, Search, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,11 +12,11 @@ import { deleteNote, updateNote } from "@/app/actions/notes/mutations";
 import type { NoteListItem } from "@/types/notes";
 
 interface Props {
-  params: { id: string; vaultId: string };
+  params: Promise<{ id: string; vaultId: string }>;
 }
 
 export default function NotesDashboardPage({ params }: Props) {
-  const { id: squadId, vaultId } = params;
+  const { id: squadId, vaultId } = use(params);
   const base = `/dashboard/squads/${squadId}/vaults/${vaultId}/notes`;
 
   const [notes, setNotes] = useState<NoteListItem[]>([]);

@@ -6,6 +6,7 @@ import { CloudUpload, X, CheckCircle2, AlertCircle, Loader2 } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { generateUploadUrl } from "@/app/actions/resources/generate-upload-url";
 import { completeUpload } from "@/app/actions/resources/complete-upload";
+import { getResourceStatus } from "@/app/actions/resources/queries";
 import { ALLOWED_MIME_TYPES, MAX_UPLOAD_BYTES, type UploadItem, type UploadPhase } from "@/types/vault";
 import { STAGE_LABELS } from "@/types/vault";
 import { v4 as uuidv4 } from "uuid";
@@ -74,9 +75,7 @@ export function UploadDropzone({ vaultId, squadId, onUploadComplete }: UploadDro
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 3000));
       try {
-        const res = await fetch(`/api/resources/${resourceId}/status`);
-        if (!res.ok) break;
-        const data = await res.json();
+        const data = await getResourceStatus(resourceId);
         updateUpload(uploadId, { processing_stage: data.processing_stage });
         if (["complete", "failed", "cancelled"].includes(data.processing_stage)) {
           updateUpload(uploadId, { phase: data.processing_stage === "complete" ? "complete" : "error" });
@@ -123,6 +122,20 @@ export function UploadDropzone({ vaultId, squadId, onUploadComplete }: UploadDro
 
   return (
     <div className="space-y-3">
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        className="hidden"
+        accept={Object.keys(ALLOWED_MIME_TYPES).join(",")}
+        onChange={(e) => {
+          if (e.target.files) {
+            handleFiles(e.target.files);
+          }
+          e.target.value = ""; // Clear file path to allow uploading the same file again
+        }}
+      />
+
       {/* Drop zone */}
       <motion.div
         animate={{ borderColor: isDragging ? "#8B5CF6" : "rgba(255,255,255,0.06)" }}
@@ -135,9 +148,6 @@ export function UploadDropzone({ vaultId, squadId, onUploadComplete }: UploadDro
           bg-white/[0.02] hover:bg-white/[0.04]"
         style={{ borderColor: isDragging ? "#8B5CF6" : "rgba(255,255,255,0.06)" }}
       >
-        <input ref={inputRef} type="file" multiple className="hidden"
-          accept={Object.keys(ALLOWED_MIME_TYPES).join(",")}
-          onChange={(e) => e.target.files && handleFiles(e.target.files)} />
 
         <motion.div animate={{ scale: isDragging ? 1.1 : 1 }} transition={{ duration: 0.15 }}>
           <CloudUpload className={`w-10 h-10 ${isDragging ? "text-violet-400" : "text-zinc-600"}`} />

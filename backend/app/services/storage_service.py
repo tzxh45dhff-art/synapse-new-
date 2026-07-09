@@ -39,13 +39,15 @@ async def generate_signed_upload_url(
         )
         resp.raise_for_status()
         data = resp.json()
-        token = data.get("token") or data.get("signedURL") or data.get("url")
-        if not token:
+        url_path = data.get("url") or data.get("signedUrl") or data.get("signedURL")
+        if not url_path:
             raise ValueError(f"Unexpected storage response: {data}")
         # Return full signed upload URL
-        if token.startswith("http"):
-            return token
-        return f"{settings.SUPABASE_URL}/storage/v1{token}"
+        if url_path.startswith("http"):
+            return url_path
+        if not url_path.startswith("/"):
+            url_path = "/" + url_path
+        return f"{settings.SUPABASE_URL}/storage/v1{url_path}"
 
 
 async def generate_signed_download_url(

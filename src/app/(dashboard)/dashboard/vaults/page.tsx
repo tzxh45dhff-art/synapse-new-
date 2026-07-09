@@ -1,12 +1,14 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { FolderArchive, ArrowRight } from "lucide-react";
-import { listVaults } from "@/app/actions/vaults/queries";
+import { listVaults, listSubjects } from "@/app/actions/vaults/queries";
 import { authedApi } from "@/lib/server-api";
 import { VaultCard } from "@/components/vaults/vault-card";
 import { VaultGridSkeleton } from "@/components/vaults/vault-skeleton";
 import { Button } from "@/components/ui/button";
+import { CreateVaultGlobalDialog } from "@/components/vaults/create-vault-global-dialog";
 import type { SquadListItem } from "@/types/squad";
+import type { SubjectItem } from "@/types/vault";
 
 export const metadata = {
   title: "Vaults — Bunker",
@@ -15,8 +17,8 @@ export const metadata = {
 
 async function VaultsContent() {
   const api = await authedApi();
-  const squads = await api.get<SquadListItem[]>("/squads").catch(() => []);
-  const activeSquads = squads.filter((s) => !s.is_personal);
+  const allSquads = await api.get<SquadListItem[]>("/squads").catch(() => [] as SquadListItem[]);
+  const activeSquads = allSquads.filter((s) => !s.is_personal);
 
   if (activeSquads.length === 0) {
     return (
@@ -113,11 +115,16 @@ async function VaultsContent() {
 export default function VaultsPage() {
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">Vaults</h1>
-        <p className="text-sm text-zinc-500 mt-1">
-          Access all your study vaults across all squads
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Vaults</h1>
+          <p className="text-sm text-zinc-500 mt-1">
+            Access all your study vaults across all squads
+          </p>
+        </div>
+        <Suspense fallback={null}>
+          <VaultsHeaderButton />
+        </Suspense>
       </div>
 
       <Suspense fallback={<VaultGridSkeleton />}>
@@ -125,4 +132,11 @@ export default function VaultsPage() {
       </Suspense>
     </div>
   );
+}
+
+async function VaultsHeaderButton() {
+  const api = await authedApi();
+  const allSquads = await api.get<SquadListItem[]>("/squads").catch(() => [] as SquadListItem[]);
+  const activeSquads = allSquads.filter((s) => !s.is_personal);
+  return <CreateVaultGlobalDialog squads={activeSquads} />;
 }

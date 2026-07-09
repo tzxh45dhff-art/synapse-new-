@@ -35,9 +35,6 @@ export default async function VaultsPage({ params, searchParams }: Props) {
   const { id: squadId } = await params;
   const { archived, q } = await searchParams;
   const showArchived = archived === "true";
-
-  const subjects = await listSubjects().catch(() => []);
-
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -48,7 +45,7 @@ export default async function VaultsPage({ params, searchParams }: Props) {
             Collaborative workspaces for each subject
           </p>
         </div>
-        <CreateVaultDialog squadId={squadId} subjects={subjects} />
+        <CreateVaultDialog squadId={squadId} />
       </div>
 
       {/* Filters */}

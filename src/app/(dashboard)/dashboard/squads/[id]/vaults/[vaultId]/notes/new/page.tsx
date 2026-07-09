@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,11 +11,11 @@ import type { PromptTemplate } from "@/types/notes";
 import type { ResourceListItem } from "@/types/vault";
 
 interface Props {
-  params: { id: string; vaultId: string };
+  params: Promise<{ id: string; vaultId: string }>;
 }
 
 export default function NewNotePage({ params }: Props) {
-  const { id: squadId, vaultId } = params;
+  const { id: squadId, vaultId } = use(params);
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [resources, setResources] = useState<ResourceListItem[]>([]);
   const [loading, setLoading] = useState(true);

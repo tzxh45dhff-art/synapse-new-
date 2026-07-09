@@ -22,6 +22,16 @@ def get_provider(name: str | None = None) -> LLMProvider:
 
         return OpenAIProvider()
 
+    if provider == "azure":
+        from app.services.ai.azure_provider import AzureOpenAIProvider
+
+        return AzureOpenAIProvider()
+
+    if provider == "gemini":
+        from app.services.ai.gemini_provider import GeminiProvider
+
+        return GeminiProvider()
+
     raise ValueError(
         f"Unknown AI provider '{provider}'. "
         "Add an adapter in app/services/ai/ and register it in factory.get_provider."
