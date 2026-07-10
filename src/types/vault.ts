@@ -104,6 +104,7 @@ export interface UploaderProfile {
   id: string;
   display_name: string | null;
   full_name: string | null;
+  email: string | null;
   avatar_url: string | null;
 }
 

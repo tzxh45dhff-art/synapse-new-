@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronRight, Lock, Zap, Rocket, FileStack, FileText, Gauge, Timer, BookOpen } from "lucide-react";
+import { ChevronRight, Lock, Zap, Rocket, FileStack, FileText, Gauge, Timer, BookOpen, Plus } from "lucide-react";
+import { CreateVaultGlobalDialog } from "@/components/vaults/create-vault-global-dialog";
+import type { SquadListItem } from "@/types/squad";
 
 export interface VaultTab {
   vaultId: string;
@@ -15,6 +17,7 @@ export interface VaultTab {
 
 interface VaultsViewProps {
   vaults: VaultTab[];
+  squads: SquadListItem[];
 }
 
 const RADAR_AXES = [
@@ -82,7 +85,7 @@ function RadarChart() {
   );
 }
 
-export function VaultsView({ vaults }: VaultsViewProps) {
+export function VaultsView({ vaults, squads }: VaultsViewProps) {
   const [active, setActive] = useState(0);
 
   if (vaults.length === 0) {
@@ -96,12 +99,22 @@ export function VaultsView({ vaults }: VaultsViewProps) {
           Vaults live inside your squads. Open a squad to create your first vault and start
           building your knowledge base.
         </p>
-        <Link
-          href="/dashboard/squads"
-          className="mt-6 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-3 text-sm font-semibold"
-        >
-          Go to Squads
-        </Link>
+        <div className="mt-6 flex items-center gap-3">
+          <Link
+            href="/dashboard/squads"
+            className="rounded-xl bg-zinc-900 border border-white/[0.08] hover:bg-zinc-800 text-white px-6 py-3 text-sm font-semibold transition"
+          >
+            Go to Squads
+          </Link>
+          <CreateVaultGlobalDialog
+            squads={squads}
+            trigger={
+              <button className="rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-3 text-sm font-semibold hover:opacity-90 transition flex items-center gap-1.5">
+                <Plus className="w-4 h-4" /> Create Vault
+              </button>
+            }
+          />
+        </div>
       </div>
     );
   }
@@ -197,6 +210,15 @@ export function VaultsView({ vaults }: VaultsViewProps) {
             {vault.subjectName ?? vault.title}
           </button>
         ))}
+        
+        <CreateVaultGlobalDialog
+          squads={squads}
+          trigger={
+            <button className="shrink-0 whitespace-nowrap rounded-full border border-dashed border-white/10 hover:border-violet-500/50 bg-white/[0.02] hover:bg-white/[0.04] px-4 py-1.5 text-sm text-zinc-400 hover:text-white transition flex items-center gap-1.5 cursor-pointer">
+              <Plus className="w-3.5 h-3.5 text-violet-400" /> Add Vault
+            </button>
+          }
+        />
       </div>
     </div>
   );

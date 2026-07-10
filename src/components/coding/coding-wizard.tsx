@@ -3,33 +3,26 @@
 import { useState } from "react";
 import {
   Terminal, Code2, Bug, Eye, PenLine, BookOpen,
-  FileText, Settings, ArrowRight, Loader2, Sparkles,
+  FileText, Settings, ArrowRight, Loader2, Sparkles, Check, ListChecks,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import type {
-  CodingLanguage,
   CodingDifficulty,
   CodingQuestionType,
   CodingGenerateRequest,
 } from "@/types/coding";
+import type { ResourceListItem } from "@/types/vault";
 
 interface Props {
   onSubmit: (data: CodingGenerateRequest) => void;
   isPending: boolean;
   hasResources: boolean;
+  resources: ResourceListItem[];
 }
-
-const LANGUAGES: { value: CodingLanguage; label: string; icon: string }[] = [
-  { value: "python",     label: "Python",     icon: "🐍" },
-  { value: "java",       label: "Java",       icon: "☕" },
-  { value: "cpp",        label: "C++",        icon: "⚡" },
-  { value: "javascript", label: "JavaScript", icon: "🟨" },
-  { value: "typescript", label: "TypeScript", icon: "🔷" },
-  { value: "go",         label: "Go",         icon: "🔵" },
-];
 
 const DIFFICULTIES: { value: CodingDifficulty; label: string; desc: string; color: string }[] = [
   { value: "easy",  label: "Easy",   desc: "Fundamentals & basics",   color: "border-green-500/20 hover:border-green-500/40 text-green-400 bg-green-500/5" },
@@ -72,13 +65,15 @@ const QUESTION_TYPES: {
 
 const COUNT_OPTIONS = [1, 2, 3, 5, 7, 10];
 
-export function CodingWizard({ onSubmit, isPending, hasResources }: Props) {
-  const [language, setLanguage] = useState<CodingLanguage>("python");
+export function CodingWizard({ onSubmit, isPending, hasResources, resources }: Props) {
+  const aiReady = resources.filter((r) => r.is_ai_ready);
   const [difficulty, setDifficulty] = useState<CodingDifficulty>("medium");
   const [selectedTypes, setSelectedTypes] = useState<CodingQuestionType[]>(["solve", "debug"]);
   const [count, setCount] = useState(5);
   const [topics, setTopics] = useState("");
   const [useVaultContext, setUseVaultContext] = useState(hasResources);
+  const [selectedResources, setSelectedResources] = useState<string[]>([]);
+  const [extractExact, setExtractExact] = useState(false);
   const [customInstruction, setCustomInstruction] = useState("");
 
   function toggleType(type: CodingQuestionType) {
@@ -89,16 +84,23 @@ export function CodingWizard({ onSubmit, isPending, hasResources }: Props) {
     );
   }
 
+  function toggleResource(id: string) {
+    setSelectedResources((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!topics.trim()) return;
     onSubmit({
-      language,
       difficulty,
       question_types: selectedTypes,
       count,
       topics: topics.trim(),
       use_vault_context: useVaultContext,
+      resource_ids: selectedResources,
+      extract_exact: extractExact && selectedResources.length > 0,
       custom_instruction: customInstruction.trim() || undefined,
     });
   }
@@ -138,27 +140,57 @@ export function CodingWizard({ onSubmit, isPending, hasResources }: Props) {
         </p>
       </div>
 
-      {/* Language */}
-      <div className="space-y-3">
-        <Label className="text-sm text-zinc-300 font-medium">Programming Language</Label>
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-          {LANGUAGES.map((lang) => (
-            <button
-              key={lang.value}
-              type="button"
-              onClick={() => setLanguage(lang.value)}
-              className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all duration-200 gap-1
-                ${language === lang.value
-                  ? "border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-500/10 text-white"
-                  : "border-white/[0.06] bg-white/[0.02] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-300"
-                }`}
-            >
-              <span className="text-lg">{lang.icon}</span>
-              <span className="text-[10px] font-medium">{lang.label}</span>
-            </button>
-          ))}
+      {/* Resource picker */}
+      {aiReady.length > 0 && (
+        <div className="space-y-3">
+          <Label className="text-sm text-zinc-300 font-medium">
+            Resources to use <span className="text-zinc-500 font-normal">(optional — leave empty for whole vault)</span>
+          </Label>
+          <div className="max-h-40 space-y-1 overflow-y-auto rounded-xl border border-white/[0.06] bg-white/[0.01] p-1.5">
+            {aiReady.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => toggleResource(r.id)}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-zinc-300 hover:bg-white/[0.04]"
+              >
+                <span className={cn(
+                  "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                  selectedResources.includes(r.id) ? "border-emerald-500 bg-emerald-600" : "border-white/20",
+                )}>
+                  {selectedResources.includes(r.id) && <Check className="h-3 w-3 text-white" />}
+                </span>
+                <span className="truncate">{r.title}</span>
+              </button>
+            ))}
+          </div>
+
+          {selectedResources.length > 0 && (
+            <div className="flex items-start justify-between gap-4 rounded-xl border border-white/[0.06] bg-white/[0.01] p-3">
+              <div className="flex gap-2.5">
+                <ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                <div>
+                  <Label htmlFor="exact-mode" className="cursor-pointer text-sm font-medium text-zinc-300">
+                    Pull exact questions from selected resources
+                  </Label>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Use if the resource is a syllabus / question bank. Exact matches come first;
+                    if there aren&apos;t enough, the rest are generated as practice.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                id="exact-mode"
+                onClick={() => setExtractExact(!extractExact)}
+                className={`h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors ${extractExact ? "bg-emerald-600" : "bg-zinc-800"}`}
+              >
+                <div className={`h-4 w-4 rounded-full bg-white transition-transform ${extractExact ? "translate-x-4" : "translate-x-0"}`} />
+              </button>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       {/* Question Types */}
       <div className="space-y-3">

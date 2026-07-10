@@ -20,11 +20,13 @@ from app.schemas.coding_schema import (
     CodingExample,
     CodingGenerateRequest,
     CodingGenerateResponse,
+    CodingLanguage,
     CodingQuestion,
 )
 from app.schemas.auth import CurrentUser
 from app.services.ai.factory import get_provider
 from app.services.vault_service import _get_active_vault, _assert_squad_member
+from app.services.notes_service import _assert_resources_in_vault
 from app.core.exceptions import ValidationError
 
 logger = structlog.get_logger()
@@ -34,11 +36,49 @@ logger = structlog.get_logger()
 _LANG_DISPLAY = {
     "python": "Python",
     "java": "Java",
+    "c": "C",
     "cpp": "C++",
     "javascript": "JavaScript",
     "typescript": "TypeScript",
     "go": "Go",
 }
+
+# ── Language inference from subject name ───────────────────────────────────────
+# Ordered so more specific keywords (e.g. "javascript") are checked before
+# substrings they contain (e.g. "java"). Plain "c" is handled separately with a
+# strict word-boundary match — checked last so "c++"/"cpp" claim those first.
+
+_LANG_KEYWORDS: list[tuple[str, CodingLanguage]] = [
+    ("c++", "cpp"),
+    ("cpp", "cpp"),
+    ("typescript", "typescript"),
+    ("javascript", "javascript"),
+    ("golang", "go"),
+    (" go ", "go"),
+    ("java", "java"),
+    ("python", "python"),
+]
+
+_C_WORD = re.compile(r"\bc\b")
+
+_DEFAULT_LANGUAGE: CodingLanguage = "python"
+
+
+def _infer_language(subject_name: str | None) -> CodingLanguage:
+    """Guess the coding language from the vault's subject name.
+
+    Falls back to Python (the common default for DSA/algorithms subjects
+    like "DSA" or "LeetCode" that name no specific language).
+    """
+    if not subject_name:
+        return _DEFAULT_LANGUAGE
+    lower = f" {subject_name.lower()} "
+    for keyword, lang in _LANG_KEYWORDS:
+        if keyword in lower:
+            return lang
+    if _C_WORD.search(lower):
+        return "c"
+    return _DEFAULT_LANGUAGE
 
 # ── Question-type guidance ─────────────────────────────────────────────────────
 
@@ -103,14 +143,16 @@ Rules:
 def _build_user_prompt(
     req: CodingGenerateRequest,
     subject_name: str | None,
+    language: CodingLanguage,
     context_chunks: list[str],
+    exact_mode: bool,
 ) -> str:
     parts: list[str] = []
 
     if subject_name:
         parts.append(f"Subject: {subject_name}")
 
-    lang_display = _LANG_DISPLAY.get(req.language, req.language)
+    lang_display = _LANG_DISPLAY.get(language, language)
     parts.append(f"Programming Language: {lang_display}")
     parts.append(f"Difficulty: {req.difficulty} — {_DIFFICULTY_GUIDANCE.get(req.difficulty, '')}")
     parts.append(f"Number of questions: {req.count}")
@@ -123,9 +165,22 @@ def _build_user_prompt(
     parts.append(f"\nTopics / Syllabus:\n{req.topics}")
 
     if context_chunks:
-        combined = "\n\n---\n\n".join(context_chunks[:6])
+        combined = "\n\n---\n\n".join(context_chunks[:12] if exact_mode else context_chunks[:6])
+        label = "Source material (extract questions verbatim from this)" if exact_mode \
+            else "Context from study materials (use to inspire grounded questions)"
+        parts.append(f"\n{label}:\n{combined}")
+
+    if exact_mode:
         parts.append(
-            f"\nContext from study materials (use to inspire grounded questions):\n{combined}"
+            "\nEXACT MODE: The source material above is a question bank / syllabus that "
+            "contains real coding questions. First, pull out real questions found verbatim "
+            "or near-verbatim in the source material — keep their original wording, "
+            "constraints and examples, only translating/rewriting code into "
+            f"{lang_display} if the source used a different language. "
+            f"If the source has fewer than {req.count} extractable questions, fill the "
+            "remainder with new practice questions on the same topics, in the same style. "
+            "Do not label or mark which questions are extracted vs generated — output them "
+            "as one seamless set matching the JSON schema."
         )
 
     if req.custom_instruction:
@@ -186,16 +241,38 @@ def _parse_questions(raw: str, count: int) -> list[CodingQuestion]:
 
 
 async def _fetch_vault_context(
-    db: AsyncSession, user_id: UUID, vault_id: UUID, topics: str
+    db: AsyncSession,
+    user_id: UUID,
+    vault_id: UUID,
+    topics: str,
+    resource_ids: list[UUID] | None = None,
 ) -> list[str]:
-    """Try to pull relevant chunks from the vault via vector search."""
+    """Try to pull relevant chunks from the vault (or selected resources) via vector search."""
     try:
         from app.services.vector_search_service import search
-        chunks = await search(db, vault_id=vault_id, query=topics, user_id=user_id, top_k=6)
+        chunks = await search(
+            db, vault_id=vault_id, query=topics, user_id=user_id, top_k=6,
+            resource_ids=resource_ids or None,
+        )
         return [c.chunk.content for c in chunks]
     except Exception as exc:
         logger.warning("coding.context.unavailable", error=str(exc))
         return []
+
+
+async def _fetch_exact_context(
+    db: AsyncSession, resource_ids: list[UUID]
+) -> list[str]:
+    """Pull the full content of the selected resources, in document order.
+
+    Used for exact-extraction mode: a top-k semantic search only returns
+    fragments relevant to the topics query, which isn't enough to reliably
+    lift whole questions verbatim out of a question bank / syllabus PDF.
+    """
+    from app.repositories.chunk_repository import ChunkRepository
+    repo = ChunkRepository(db)
+    chunks = await repo.get_by_resources(resource_ids, limit=60)
+    return [c.content for c in chunks]
 
 
 async def generate_coding_questions(
@@ -207,6 +284,7 @@ async def generate_coding_questions(
     """Generate coding questions for a vault and return structured results."""
     vault = await _get_active_vault(db, vault_id)
     await _assert_squad_member(db, vault, user.id)
+    await _assert_resources_in_vault(db, vault_id, req.resource_ids)
 
     # Get subject name
     subject_name: str | None = None
@@ -216,13 +294,21 @@ async def generate_coding_questions(
         if subj:
             subject_name = subj.name
 
-    # Optionally pull vault context
+    language: CodingLanguage = req.language or _infer_language(subject_name)
+
+    # Pull context: exact mode reads full selected resources; otherwise a
+    # topics-scoped semantic search (optionally narrowed to selected resources).
+    exact_mode = req.extract_exact and bool(req.resource_ids)
     context_chunks: list[str] = []
-    if req.use_vault_context:
-        context_chunks = await _fetch_vault_context(db, user.id, vault_id, req.topics)
+    if exact_mode:
+        context_chunks = await _fetch_exact_context(db, req.resource_ids)
+    elif req.use_vault_context:
+        context_chunks = await _fetch_vault_context(
+            db, user.id, vault_id, req.topics, resource_ids=req.resource_ids,
+        )
 
     # Build messages
-    user_prompt = _build_user_prompt(req, subject_name, context_chunks)
+    user_prompt = _build_user_prompt(req, subject_name, language, context_chunks, exact_mode)
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
@@ -246,7 +332,7 @@ async def generate_coding_questions(
     return CodingGenerateResponse(
         vault_id=vault_id,
         subject_name=subject_name,
-        language=req.language,
+        language=language,
         difficulty=req.difficulty,
         requested_count=req.count,
         generated_count=len(questions),

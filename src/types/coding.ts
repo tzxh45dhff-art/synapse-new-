@@ -1,16 +1,18 @@
 // TypeScript types for the Coding Questions Generator
 
-export type CodingLanguage = "python" | "java" | "cpp" | "javascript" | "typescript" | "go";
+export type CodingLanguage = "python" | "java" | "c" | "cpp" | "javascript" | "typescript" | "go";
 export type CodingDifficulty = "easy" | "medium" | "hard" | "mixed";
 export type CodingQuestionType = "solve" | "debug" | "trace" | "fill";
 
 export interface CodingGenerateRequest {
-  language: CodingLanguage;
+  language?: CodingLanguage;
   difficulty: CodingDifficulty;
   question_types: CodingQuestionType[];
   count: number;
   topics: string;
   use_vault_context?: boolean;
+  resource_ids?: string[];
+  extract_exact?: boolean;
   custom_instruction?: string;
 }
 

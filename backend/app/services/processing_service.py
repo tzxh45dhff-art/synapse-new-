@@ -1,6 +1,7 @@
 """
 Processing service — job queue orchestrator + metadata extraction pipeline.
 
+
 Architecture:
   - enqueue_job()   → inserts a ResourceProcessingJob row
   - poll_job_queue() → async loop, runs forever, polls every 5s

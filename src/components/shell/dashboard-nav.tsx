@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, FolderClosed, Users, Settings, Sparkles } from "lucide-react";
+import { AskAiDrawer } from "@/components/chat/ask-ai-drawer";
 
 export function DashboardNav() {
   const pathname = usePathname();
+  const [chatOpen, setChatOpen] = useState(false);
   const isDash = pathname === "/dashboard";
   const isVaults = pathname.startsWith("/dashboard/vaults");
   const isSquads = pathname.startsWith("/dashboard/squads");
@@ -39,13 +42,16 @@ export function DashboardNav() {
       {/* ask ai */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col items-center gap-1.5 sm:right-8">
         <button
-          title="Coming soon"
-          className="flex h-14 w-14 cursor-not-allowed items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 shadow-lg shadow-violet-900/50 ring-4 ring-violet-500/20"
+          title="Ask AI"
+          onClick={() => setChatOpen(true)}
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 shadow-lg shadow-violet-900/50 ring-4 ring-violet-500/20 transition hover:shadow-violet-900/70 hover:ring-violet-500/30"
         >
           <Sparkles className="h-6 w-6" />
         </button>
         <span className="text-xs text-white/60">Ask AI</span>
       </div>
+
+      <AskAiDrawer open={chatOpen} onOpenChange={setChatOpen} />
     </>
   );
 }

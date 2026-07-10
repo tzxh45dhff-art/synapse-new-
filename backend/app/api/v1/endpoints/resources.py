@@ -186,6 +186,7 @@ def _profile_dict(profile) -> dict | None:
         "id": profile.id,
         "display_name": profile.display_name,
         "full_name": profile.full_name,
+        "email": profile.email,
         "avatar_url": profile.avatar_url,
     }
 

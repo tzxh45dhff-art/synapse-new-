@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import squads, invitations, vaults, resources, notes, mcq, coding
+from app.api.v1.endpoints import squads, invitations, vaults, resources, notes, mcq, coding, chat
 
 api_router = APIRouter()
 
@@ -21,10 +21,9 @@ api_router.include_router(resources.router, tags=["resources"])
 api_router.include_router(notes.router, tags=["notes"])
 api_router.include_router(mcq.router, tags=["mcq"])
 api_router.include_router(coding.router, tags=["coding"])
+api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 
 # Future routers:
-# api_router.include_router(notes.router, prefix="/notes", tags=["notes"])
 # api_router.include_router(quizzes.router, prefix="/quizzes", tags=["quizzes"])
 # api_router.include_router(flashcards.router, prefix="/flashcards", tags=["flashcards"])
-# api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 

@@ -67,7 +67,6 @@ export default function CodingQuestionsPage({ params }: Props) {
   }, [fetchVaultData]);
 
   function handleGenerate(data: CodingGenerateRequest) {
-    setGeneratedLanguage(data.language);
     startTransition(async () => {
       try {
         const response = await generateCodingQuestions(vaultId, data);
@@ -75,6 +74,7 @@ export default function CodingQuestionsPage({ params }: Props) {
           toast.error("AI failed to generate questions. Try refining your topics.");
           return;
         }
+        setGeneratedLanguage(response.language);
         setQuestions(response.questions);
         setStage("questions");
         setActiveQuestionIndex(null); // return to problem set list initially
@@ -128,6 +128,7 @@ export default function CodingQuestionsPage({ params }: Props) {
             onSubmit={handleGenerate}
             isPending={isPending}
             hasResources={hasResources}
+            resources={resources}
           />
         )}
 

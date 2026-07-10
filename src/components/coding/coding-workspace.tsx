@@ -37,6 +37,7 @@ const DIFF_COLORS: Record<string, string> = {
 const MONACO_LANGS: Record<string, string> = {
   python: "python",
   java: "java",
+  c: "c",
   cpp: "cpp",
   javascript: "javascript",
   typescript: "typescript",

@@ -38,5 +38,5 @@ export default async function VaultsPage() {
       resourceCount: vault.statistics?.resource_count ?? 0,
     }));
 
-  return <VaultsView vaults={vaults} />;
+  return <VaultsView vaults={vaults} squads={activeSquads} />;
 }

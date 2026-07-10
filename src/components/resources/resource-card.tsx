@@ -50,7 +50,7 @@ export function ResourceCard({
   resource, index = 0, onRename, onDelete, onRetry, onCancel, onClick,
 }: ResourceCardProps) {
   const uploader = resource.uploader;
-  const uploaderName = uploader?.display_name ?? uploader?.full_name ?? "Unknown";
+  const uploaderName = uploader?.display_name || uploader?.full_name || (uploader?.email ? uploader.email.split("@")[0] : "Unknown");
   const isProcessing = !["complete", "failed", "cancelled"].includes(resource.processing_stage);
 
   async function handleOpenResource() {

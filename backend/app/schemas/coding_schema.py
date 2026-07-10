@@ -15,7 +15,7 @@ class BunkerBaseModel(BaseModel):
 
 # ── Literals ───────────────────────────────────────────────────────────────────
 
-CodingLanguage = Literal["python", "java", "cpp", "javascript", "typescript", "go"]
+CodingLanguage = Literal["python", "java", "c", "cpp", "javascript", "typescript", "go"]
 CodingDifficulty = Literal["easy", "medium", "hard", "mixed"]
 CodingQuestionType = Literal["solve", "debug", "trace", "fill"]
 
@@ -25,7 +25,10 @@ CodingQuestionType = Literal["solve", "debug", "trace", "fill"]
 class CodingGenerateRequest(BunkerBaseModel):
     """Parameters for generating a set of coding questions."""
 
-    language: CodingLanguage = "python"
+    language: CodingLanguage | None = Field(
+        default=None,
+        description="Explicit language override. If omitted, inferred from the vault's subject.",
+    )
     difficulty: CodingDifficulty = "medium"
     question_types: list[CodingQuestionType] = Field(
         default=["solve", "debug"],
@@ -42,6 +45,16 @@ class CodingGenerateRequest(BunkerBaseModel):
     use_vault_context: bool = Field(
         default=True,
         description="Inject relevant vault resource chunks into the prompt.",
+    )
+    resource_ids: list[UUID] = Field(
+        default_factory=list,
+        description="Restrict context to these resources. Empty = whole vault.",
+    )
+    extract_exact: bool = Field(
+        default=False,
+        description="Pull exact/verbatim questions out of the selected resources "
+        "(e.g. an uploaded question bank) instead of only generating new ones. "
+        "If fewer exact questions exist than requested, the rest are generated as practice.",
     )
     custom_instruction: str | None = Field(None, max_length=500)
 

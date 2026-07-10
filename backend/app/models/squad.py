@@ -12,6 +12,7 @@ from app.db.session import Base
 
 class Squad(Base):
     __tablename__ = "squads"
+    __mapper_args__ = {"eager_defaults": True}
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(200), nullable=False)

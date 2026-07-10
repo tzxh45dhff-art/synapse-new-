@@ -14,8 +14,10 @@ class ChatSession(Base):
     __tablename__ = "chat_sessions"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    vault_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("vaults.id", ondelete="CASCADE"), nullable=False
+    # NULL = global session searching every vault the user can access.
+    # Set = scoped to one vault (reserved for a future "Ask This Vault" entry point).
+    vault_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("vaults.id", ondelete="SET NULL")
     )
     user_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="CASCADE"), nullable=False

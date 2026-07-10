@@ -91,6 +91,7 @@ class UploaderProfile(BunkerBaseModel):
     id: UUID
     display_name: str | None
     full_name: str | None
+    email: str | None = None
     avatar_url: str | None
 
 

@@ -89,7 +89,7 @@ export default function SettingsPage() {
         <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-6 backdrop-blur-sm">
           <h3 className="text-lg font-semibold">General</h3>
           <Separator className="my-4" />
-          <form onSubmit={handleSave} className="space-y-4 max-w-lg">
+          <form key={squad.updated_at} onSubmit={handleSave} className="space-y-4 max-w-lg">
             <div className="space-y-2">
               <Label htmlFor="name">Squad name</Label>
               <Input id="name" name="name" defaultValue={squad.name} maxLength={100} required />
