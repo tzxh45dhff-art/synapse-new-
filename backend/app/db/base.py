@@ -5,6 +5,7 @@ from app.db.session import Base  # noqa: F401
 # Core Models
 from app.models.profile import Profile  # noqa: F401
 from app.models.squad import Squad, SquadMember, Invitation  # noqa: F401
+from app.models.squad_message import SquadMessage, SquadMessageReaction  # noqa: F401
 from app.models.vault import Vault, Subject  # noqa: F401
 from app.models.resource import Resource, ResourceChunk, ResourceProcessingJob  # noqa: F401
 from app.models.note import Note, NoteVersion, NoteGeneration  # noqa: F401

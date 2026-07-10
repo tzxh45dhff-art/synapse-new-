@@ -2,7 +2,9 @@
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import squads, invitations, vaults, resources, notes, mcq, coding, chat
+from app.api.v1.endpoints import (
+    squads, invitations, vaults, resources, notes, mcq, coding, chat, squad_chat, intelligence,
+)
 
 api_router = APIRouter()
 
@@ -16,6 +18,8 @@ async def ping():
 # ── Feature routers ──────────────────────────────────────────────────────
 api_router.include_router(squads.router, prefix="/squads", tags=["squads"])
 api_router.include_router(invitations.router, tags=["invitations"])
+api_router.include_router(squad_chat.router, tags=["squad-chat"])
+api_router.include_router(intelligence.router, tags=["intelligence"])
 api_router.include_router(vaults.router, tags=["vaults"])
 api_router.include_router(resources.router, tags=["resources"])
 api_router.include_router(notes.router, tags=["notes"])

@@ -20,6 +20,8 @@ from app.schemas.coding_schema import (
     CodingExample,
     CodingGenerateRequest,
     CodingGenerateResponse,
+    CodingGradeRequest,
+    CodingGradeResponse,
     CodingLanguage,
     CodingQuestion,
 )
@@ -431,8 +433,7 @@ Return only the JSON object.
         else:
             raise ValidationError(f"Grader returned invalid JSON: {exc}") from exc
 
-    from app.schemas.coding_schema import CodingGradeResponse as GradeResponse
-    return GradeResponse(
+    return CodingGradeResponse(
         status=data.get("status", "Wrong Answer"),
         test_cases_passed=data.get("test_cases_passed", 0),
         total_test_cases=data.get("total_test_cases", 5),

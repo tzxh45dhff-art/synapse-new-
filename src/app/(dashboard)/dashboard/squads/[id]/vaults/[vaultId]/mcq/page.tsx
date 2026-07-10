@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useState, useTransition } from "react";
+import { use, useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { ArrowLeft, BrainCircuit, Sparkles, AlertCircle, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import { MCQResults } from "@/components/mcq/mcq-results";
 import { getVault } from "@/app/actions/vaults/queries";
 import { listResources } from "@/app/actions/resources/queries";
 import { generateMCQ } from "@/app/actions/mcq/generate";
+import { recordPracticeAttempt } from "@/app/actions/intelligence/mutations";
 import type { VaultDetail, ResourceListItem } from "@/types/vault";
 import type { MCQQuestion, MCQGenerateRequest } from "@/types/mcq";
 
@@ -34,6 +35,7 @@ export default function MCQPage({ params }: Props) {
   const [questions, setQuestions] = useState<MCQQuestion[]>([]);
   const [score, setScore] = useState(0);
   const [answersCount, setAnswersCount] = useState(0);
+  const scoreRef = useRef(0);
 
   // Wizard input history (for retry)
   const [lastRequest, setLastRequest] = useState<MCQGenerateRequest | null>(null);
@@ -70,6 +72,7 @@ export default function MCQPage({ params }: Props) {
         setQuestions(response.questions);
         setScore(0);
         setAnswersCount(0);
+        scoreRef.current = 0;
         setStage("quiz");
         toast.success(`Successfully generated ${response.questions.length} questions!`);
       } catch (err: any) {
@@ -80,12 +83,27 @@ export default function MCQPage({ params }: Props) {
 
   // Answer callback
   function handleAnswer(correct: boolean) {
-    if (correct) setScore((s) => s + 1);
+    if (correct) {
+      scoreRef.current += 1;
+      setScore((s) => s + 1);
+    }
     setAnswersCount((c) => {
       const nextCount = c + 1;
       if (nextCount === questions.length) {
         // finished
+        const total = questions.length;
+        const finalScore = scoreRef.current;
         setTimeout(() => setStage("results"), 1200);
+        if (total > 0) {
+          recordPracticeAttempt({
+            vault_id: vaultId,
+            session_type: "mcq",
+            score_pct: Math.round((finalScore / total) * 100),
+            topic: vault?.subject?.name ?? vault?.title,
+          }).catch(() => {
+            /* best-effort tracking; never block the results screen */
+          });
+        }
       }
       return nextCount;
     });
@@ -96,6 +114,7 @@ export default function MCQPage({ params }: Props) {
     // Reset selection states in cards by setting stage back to quiz and key changes
     setScore(0);
     setAnswersCount(0);
+    scoreRef.current = 0;
     // shuffle questions if we want, or keep same
     setStage("quiz");
     toast.info("Retaking current quiz...");
@@ -106,6 +125,7 @@ export default function MCQPage({ params }: Props) {
     setQuestions([]);
     setScore(0);
     setAnswersCount(0);
+    scoreRef.current = 0;
     setStage("wizard");
   }
 

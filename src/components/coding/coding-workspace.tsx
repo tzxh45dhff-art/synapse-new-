@@ -10,11 +10,13 @@ import {
 import { Button } from "@/components/ui/button";
 import type { CodingQuestion, CodingGradeResponse } from "@/types/coding";
 import { gradeCodingQuestion } from "@/app/actions/coding/generate";
+import { recordPracticeAttempt } from "@/app/actions/intelligence/mutations";
 import { toast } from "sonner";
 
 interface Props {
   question: CodingQuestion;
   vaultId: string;
+  topic?: string;
   onBack: () => void;
 }
 
@@ -55,7 +57,7 @@ const handleEditorWillMount = (monaco: any) => {
   });
 };
 
-export function CodingWorkspace({ question, vaultId, onBack }: Props) {
+export function CodingWorkspace({ question, vaultId, topic, onBack }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("description");
   const [code, setCode] = useState(question.code_snippet ?? "");
   const [hintsRevealed, setHintsRevealed] = useState(0);
@@ -93,6 +95,16 @@ export function CodingWorkspace({ question, vaultId, onBack }: Props) {
         toast.success(isSubmit ? "Problem Solved Successfully!" : "All Test Cases Passed!");
       } else {
         toast.error(`${response.status}: Passed ${response.test_cases_passed}/${response.total_test_cases}`);
+      }
+      if (isSubmit && response.total_test_cases > 0) {
+        recordPracticeAttempt({
+          vault_id: vaultId,
+          session_type: "coding",
+          score_pct: Math.round((response.test_cases_passed / response.total_test_cases) * 100),
+          topic,
+        }).catch(() => {
+          /* best-effort tracking; never block the grader UI */
+        });
       }
     } catch (err: any) {
       toast.error("Failed to run code grader.");

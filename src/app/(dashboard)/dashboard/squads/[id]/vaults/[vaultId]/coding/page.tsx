@@ -233,6 +233,7 @@ export default function CodingQuestionsPage({ params }: Props) {
               <CodingWorkspace
                 question={questions[activeQuestionIndex]}
                 vaultId={vaultId}
+                topic={vault?.subject?.name ?? vault?.title}
                 onBack={() => setActiveQuestionIndex(null)}
               />
             )}

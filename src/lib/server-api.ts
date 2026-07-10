@@ -26,6 +26,7 @@ export async function authedApi() {
   return {
     get: <T>(path: string) => unwrap(api.get<T>(`/api/v1${path}`, { token })),
     post: <T>(path: string, body: unknown) => unwrap(api.post<T>(`/api/v1${path}`, body, { token })),
+    put: <T>(path: string, body: unknown) => unwrap(api.put<T>(`/api/v1${path}`, body, { token })),
     patch: <T>(path: string, body: unknown) => unwrap(api.patch<T>(`/api/v1${path}`, body, { token })),
     del: <T>(path: string) => unwrap(api.delete<T>(`/api/v1${path}`, { token })),
   };
