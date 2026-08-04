@@ -52,8 +52,8 @@ export default function VaultSettingsPage({ params }: Props) {
           description: description.trim() || undefined,
         });
         setVault(updated);
-      } catch (err: any) {
-        setSaveError(err?.message ?? "Failed to save.");
+      } catch (err: unknown) {
+        setSaveError(err instanceof Error ? err.message : "Failed to save.");
       }
     });
   }

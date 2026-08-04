@@ -1,14 +1,18 @@
-"""Coding question generation service.
+"""Coding question generation and grading.
 
-Builds a structured prompt, calls Azure OpenAI (GPT-4o), and parses
-the JSON response into validated CodingQuestion objects.
-Generated sets are automatically persisted to the database.
+Generation asks the model for an executable contract (entry point, runnable
+reference solution, concrete test cases), then **runs the reference solution**
+to repair or drop any test case the model got wrong. Grading then executes the
+learner's submission against those verified cases, so printing or hardcoding
+the sample answer fails the hidden cases the way it should.
+
+See ``app/services/coding/`` for prompts, parsing, verification and grading, and
+``app/services/execution/`` for the sandbox itself.
 """
 
 from __future__ import annotations
 
-import json
-import re
+import asyncio
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -16,43 +20,52 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.vault import Subject, Vault
+from app.core.exceptions import ValidationError
 from app.models.mcq_coding_set import CodingSet
+from app.models.vault import Subject
+from app.schemas.auth import CurrentUser
 from app.schemas.coding_schema import (
-    CodingExample,
     CodingGenerateRequest,
     CodingGenerateResponse,
     CodingGradeRequest,
     CodingGradeResponse,
     CodingLanguage,
     CodingQuestion,
-    CodingSetListItem,
+    CodingRuntimeInfo,
     CodingSetDetail,
+    CodingSetListItem,
 )
-from app.schemas.auth import CurrentUser
 from app.services.ai.factory import get_provider
-from app.services.vault_service import _get_active_vault, _assert_squad_member
+from app.services.coding import grading, parsing, verification
+from app.services.coding.prompts import (
+    REPAIR_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    build_generation_prompt,
+)
+from app.services.execution.runtimes import (
+    detect_runtimes,
+    display_name,
+    is_language_executable,
+    normalise_language,
+)
 from app.services.notes_service import _assert_resources_in_vault
-from app.core.exceptions import ValidationError
+from app.services.vault_service import _assert_squad_member, _get_active_vault
 
 logger = structlog.get_logger()
 
-# ── Language display names ─────────────────────────────────────────────────────
+# Smaller batches keep every question inside the model's reliable output window,
+# which is what stops half-written JSON and duplicate problems.
+_BATCH_SIZE = 3
+_GENERATION_TIMEOUT_S = 180.0
+_MAX_OUTPUT_TOKENS = 8000
 
-_LANG_DISPLAY = {
-    "python": "Python",
-    "java": "Java",
-    "c": "C",
-    "cpp": "C++",
-    "javascript": "JavaScript",
-    "typescript": "TypeScript",
-    "go": "Go",
-}
 
 # ── Language inference from subject name ───────────────────────────────────────
 # Ordered so more specific keywords (e.g. "javascript") are checked before
 # substrings they contain (e.g. "java"). Plain "c" is handled separately with a
-# strict word-boundary match — checked last so "c++"/\"cpp\" claim those first.
+# strict word-boundary match — checked last so "c++"/"cpp" claim those first.
+
+import re  # noqa: E402  (kept next to the table it serves)
 
 _LANG_KEYWORDS: list[tuple[str, CodingLanguage]] = [
     ("c++", "cpp"),
@@ -86,164 +99,32 @@ def _infer_language(subject_name: str | None) -> CodingLanguage:
         return "c"
     return _DEFAULT_LANGUAGE
 
-# ── Question-type guidance ─────────────────────────────────────────────────────
 
-_TYPE_GUIDANCE = {
-    "solve": (
-        "SOLVE: provide a problem statement and a starter function/class with a docstring "
-        "and `pass` body. The user must implement the solution. "
-        "code_snippet = starter stub. solution = full working implementation."
-    ),
-    "debug": (
-        "DEBUG: provide working-looking code that contains 1–2 deliberate logical or "
-        "syntactic bugs. The user must find and fix them. "
-        "code_snippet = buggy code. solution = corrected code."
-    ),
-    "trace": (
-        "TRACE: provide a short self-contained code snippet (10–20 lines). "
-        "The user must predict the exact printed output or return value. "
-        "code_snippet = the code to trace. solution = exact expected output as a string."
-    ),
-    "fill": (
-        "FILL: provide code with 1–3 blanks marked as `___`. "
-        "The user must fill in the blanks to make the code correct. "
-        "code_snippet = code with blanks. solution = completed code with blanks filled."
-    ),
-}
-
-_DIFFICULTY_GUIDANCE = {
-    "easy":   "straightforward, single-concept questions for beginners",
-    "medium": "multi-step logic, standard algorithms and data structures",
-    "hard":   "complex problems — optimisation, edge cases, advanced patterns",
-    "mixed":  "a balanced spread of easy, medium, and hard questions",
-}
-
-_SYSTEM_PROMPT = """\
-You are an expert coding-problem writer. Your output must be valid JSON — \
-nothing else, no prose, no markdown fences, just the raw JSON array.
-
-Return a JSON array where each element has these EXACT keys:
-  "number"              : integer (1-based)
-  "type"                : "solve" | "debug" | "trace" | "fill"
-  "title"               : short descriptive title (≤ 60 chars)
-  "language"            : the programming language used
-  "difficulty"          : "easy" | "medium" | "hard"
-  "topic_hint"          : string or null — which sub-topic this tests
-  "problem"             : string — clear problem statement (plain text, no markdown)
-  "code_snippet"        : string or null — starter / buggy / trace / fill code
-  "examples"            : array of {\"input\":\"...\",\"output\":\"...\",\"explanation\":\"...\"} (0–3 items)
-  "constraints"         : array of strings (0–5 constraints)
-  "hints"               : array of 1–3 progressive hint strings
-  "solution"            : string — the correct/complete code
-  "solution_explanation": string — 2–4 sentences explaining the approach
-
-Rules:
-- Use real, runnable code (not pseudocode)
-- Every code block must be plain text (no markdown backticks inside the JSON string)
-- Escape newlines as \\n in JSON strings
-- No duplicate questions
-- JSON must be parseable with json.loads()
-"""
+def _build_title(topics: str, language: str, difficulty: str) -> str:
+    """Derive a human-readable title for a saved coding set."""
+    snippet = topics.strip()[:50].strip()
+    if len(topics.strip()) > 50:
+        snippet += "…"
+    return f"{snippet} — {display_name(language)} ({difficulty.capitalize()})"
 
 
-def _build_user_prompt(
-    req: CodingGenerateRequest,
-    subject_name: str | None,
-    language: CodingLanguage,
-    context_chunks: list[str],
-    exact_mode: bool,
-) -> str:
-    parts: list[str] = []
-
-    if subject_name:
-        parts.append(f"Subject: {subject_name}")
-
-    lang_display = _LANG_DISPLAY.get(language, language)
-    parts.append(f"Programming Language: {lang_display}")
-    parts.append(f"Difficulty: {req.difficulty} — {_DIFFICULTY_GUIDANCE.get(req.difficulty, '')}")
-    parts.append(f"Number of questions: {req.count}")
-
-    types_text = ", ".join(req.question_types)
-    parts.append(f"Question types to include (distribute evenly): {types_text}")
-    for t in req.question_types:
-        parts.append(f"  • {_TYPE_GUIDANCE[t]}")
-
-    parts.append(f"\nTopics / Syllabus:\n{req.topics}")
-
-    if context_chunks:
-        combined = "\n\n---\n\n".join(context_chunks[:12] if exact_mode else context_chunks[:6])
-        label = "Source material (extract questions verbatim from this)" if exact_mode \
-            else "Context from study materials (use to inspire grounded questions)"
-        parts.append(f"\n{label}:\n{combined}")
-
-    if exact_mode:
-        parts.append(
-            "\nEXACT MODE: The source material above is a question bank / syllabus that "
-            "contains real coding questions. First, pull out real questions found verbatim "
-            "or near-verbatim in the source material — keep their original wording, "
-            "constraints and examples, only translating/rewriting code into "
-            f"{lang_display} if the source used a different language. "
-            f"If the source has fewer than {req.count} extractable questions, fill the "
-            "remainder with new practice questions on the same topics, in the same style. "
-            "Do not label or mark which questions are extracted vs generated — output them "
-            "as one seamless set matching the JSON schema."
-        )
-
-    if req.custom_instruction:
-        parts.append(f"\nExtra instruction: {req.custom_instruction}")
-
-    parts.append(
-        f"\nGenerate exactly {req.count} questions in {lang_display}. "
-        "Distribute the requested types as evenly as possible. "
-        "Return only the JSON array."
-    )
-    return "\n".join(parts)
+def _plan_batches(count: int, types: list[str]) -> list[tuple[int, list[str]]]:
+    """Split the request into batches, spreading question types across them."""
+    batches: list[tuple[int, list[str]]] = []
+    remaining = count
+    cursor = 0
+    while remaining > 0:
+        size = min(_BATCH_SIZE, remaining)
+        batch_types = [types[(cursor + offset) % len(types)] for offset in range(size)]
+        # Preserve order but drop duplicates so the guidance stays short.
+        deduped = list(dict.fromkeys(batch_types))
+        batches.append((size, deduped))
+        cursor += size
+        remaining -= size
+    return batches
 
 
-def _parse_questions(raw: str, count: int) -> list[CodingQuestion]:
-    """Extract and validate the JSON array from the model output."""
-    raw = raw.strip()
-    raw = re.sub(r"^```(?:json)?", "", raw, flags=re.IGNORECASE).strip()
-    raw = re.sub(r"```$", "", raw).strip()
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        match = re.search(r"\[.*\]", raw, re.DOTALL)
-        if match:
-            data = json.loads(match.group(0))
-        else:
-            raise ValidationError(f"AI returned invalid JSON: {exc}") from exc
-
-    if not isinstance(data, list):
-        raise ValidationError("AI response must be a JSON array of questions.")
-
-    questions: list[CodingQuestion] = []
-    for i, item in enumerate(data[:count], start=1):
-        try:
-            examples = [
-                CodingExample(**ex) for ex in item.get("examples", [])
-            ]
-            q = CodingQuestion(
-                number=item.get("number", i),
-                type=item.get("type", "solve"),
-                title=item.get("title", f"Question {i}"),
-                language=item.get("language", "python"),
-                difficulty=item.get("difficulty", "medium"),
-                topic_hint=item.get("topic_hint"),
-                problem=item["problem"],
-                code_snippet=item.get("code_snippet"),
-                examples=examples,
-                constraints=item.get("constraints", []),
-                hints=item.get("hints", []),
-                solution=item["solution"],
-                solution_explanation=item.get("solution_explanation", ""),
-            )
-            questions.append(q)
-        except Exception as exc:
-            logger.warning("coding.parse.skip_question", index=i, error=str(exc))
-
-    return questions
+# ── Context retrieval ─────────────────────────────────────────────────────────
 
 
 async def _fetch_vault_context(
@@ -253,22 +134,21 @@ async def _fetch_vault_context(
     topics: str,
     resource_ids: list[UUID] | None = None,
 ) -> list[str]:
-    """Try to pull relevant chunks from the vault (or selected resources) via vector search."""
+    """Pull relevant chunks from the vault (or selected resources) via vector search."""
     try:
         from app.services.vector_search_service import search
+
         chunks = await search(
             db, vault_id=vault_id, query=topics, user_id=user_id, top_k=6,
             resource_ids=resource_ids or None,
         )
         return [c.chunk.content for c in chunks]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — context is an enhancement, not a requirement
         logger.warning("coding.context.unavailable", error=str(exc))
         return []
 
 
-async def _fetch_exact_context(
-    db: AsyncSession, resource_ids: list[UUID]
-) -> list[str]:
+async def _fetch_exact_context(db: AsyncSession, resource_ids: list[UUID]) -> list[str]:
     """Pull the full content of the selected resources, in document order.
 
     Used for exact-extraction mode: a top-k semantic search only returns
@@ -276,18 +156,92 @@ async def _fetch_exact_context(
     lift whole questions verbatim out of a question bank / syllabus PDF.
     """
     from app.repositories.chunk_repository import ChunkRepository
+
     repo = ChunkRepository(db)
     chunks = await repo.get_by_resources(resource_ids, limit=60)
     return [c.content for c in chunks]
 
 
-def _build_title(topics: str, language: str, difficulty: str) -> str:
-    """Derive a human-readable title for a saved coding set."""
-    snippet = topics.strip()[:50].strip()
-    if len(topics.strip()) > 50:
-        snippet += "…"
-    lang_display = _LANG_DISPLAY.get(language, language)
-    return f"{snippet} — {lang_display} ({difficulty.capitalize()})"
+# ── Model calls ───────────────────────────────────────────────────────────────
+
+
+async def _complete(
+    messages: list[dict[str, str]], *, temperature: float, max_tokens: int
+) -> str:
+    provider = get_provider("azure")
+    text = ""
+
+    async def collect() -> None:
+        nonlocal text
+        async for event in provider.stream_chat(
+            messages, temperature=temperature, max_tokens=max_tokens  # type: ignore[arg-type]
+        ):
+            if event.type == "delta":
+                text += event.text
+
+    await asyncio.wait_for(collect(), timeout=_GENERATION_TIMEOUT_S)
+    return text
+
+
+async def _repair_json(raw: str) -> str:
+    """Ask the model to fix its own malformed array — cheaper than regenerating."""
+    try:
+        return await _complete(
+            [
+                {"role": "system", "content": REPAIR_SYSTEM_PROMPT},
+                {"role": "user", "content": raw[:24000]},
+            ],
+            temperature=0.0,
+            max_tokens=_MAX_OUTPUT_TOKENS,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("coding.generate.repair_failed", error=str(exc))
+        return ""
+
+
+async def _generate_batch(
+    req: CodingGenerateRequest,
+    *,
+    subject_name: str | None,
+    language: str,
+    batch_count: int,
+    batch_types: list[str],
+    context_chunks: list[str],
+    exact_mode: bool,
+    avoid_titles: list[str],
+    start_number: int,
+) -> list[CodingQuestion]:
+    prompt = build_generation_prompt(
+        req,
+        subject_name=subject_name,
+        language=language,
+        batch_count=batch_count,
+        batch_types=batch_types,
+        context_chunks=context_chunks,
+        exact_mode=exact_mode,
+        avoid_titles=avoid_titles,
+        start_number=start_number,
+    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+
+    raw = await _complete(messages, temperature=0.55, max_tokens=_MAX_OUTPUT_TOKENS)
+    questions = parsing.parse_questions(
+        raw, language=language, start_number=start_number, limit=batch_count
+    )
+    if questions:
+        return questions
+
+    logger.warning("coding.generate.parse_empty", batch=batch_count)
+    repaired = await _repair_json(raw)
+    return parsing.parse_questions(
+        repaired, language=language, start_number=start_number, limit=batch_count
+    )
+
+
+# ── Generation ────────────────────────────────────────────────────────────────
 
 
 async def generate_coding_questions(
@@ -296,57 +250,73 @@ async def generate_coding_questions(
     vault_id: UUID,
     req: CodingGenerateRequest,
 ) -> CodingGenerateResponse:
-    """Generate coding questions for a vault, persist them, and return structured results."""
+    """Generate coding questions for a vault, verify them, persist and return them."""
     vault = await _get_active_vault(db, vault_id)
     await _assert_squad_member(db, vault, user.id)
     await _assert_resources_in_vault(db, vault_id, req.resource_ids)
 
-    # Get subject name
     subject_name: str | None = None
     if vault.subject_id:
-        res = await db.execute(select(Subject).where(Subject.id == vault.subject_id))
-        subj = res.scalar_one_or_none()
-        if subj:
-            subject_name = subj.name
+        result = await db.execute(select(Subject).where(Subject.id == vault.subject_id))
+        subject = result.scalar_one_or_none()
+        if subject:
+            subject_name = subject.name
 
-    language: CodingLanguage = req.language or _infer_language(subject_name)
+    language = normalise_language(req.language or _infer_language(subject_name))
 
-    # Pull context: exact mode reads full selected resources; otherwise a
-    # topics-scoped semantic search (optionally narrowed to selected resources).
+    # Exact mode reads the full selected resources; otherwise a topics-scoped
+    # semantic search (optionally narrowed to the selected resources).
     exact_mode = req.extract_exact and bool(req.resource_ids)
     context_chunks: list[str] = []
     if exact_mode:
         context_chunks = await _fetch_exact_context(db, req.resource_ids)
     elif req.use_vault_context:
         context_chunks = await _fetch_vault_context(
-            db, user.id, vault_id, req.topics, resource_ids=req.resource_ids,
+            db, user.id, vault_id, req.topics, resource_ids=req.resource_ids
         )
 
-    # Build messages
-    user_prompt = _build_user_prompt(req, subject_name, language, context_chunks, exact_mode)
-    messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
-    ]
+    questions: list[CodingQuestion] = []
+    for batch_count, batch_types in _plan_batches(req.count, list(req.question_types)):
+        try:
+            batch = await _generate_batch(
+                req,
+                subject_name=subject_name,
+                language=language,
+                batch_count=batch_count,
+                batch_types=batch_types,
+                context_chunks=context_chunks,
+                exact_mode=exact_mode,
+                avoid_titles=[question.title for question in questions],
+                start_number=len(questions) + 1,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("coding.generate.timeout", generated=len(questions))
+            break
+        except Exception as exc:  # noqa: BLE001 — keep whatever we already have
+            logger.exception("coding.generate.batch_failed", error=str(exc))
+            break
 
-    # Always use Azure OpenAI (GPT-4o) for coding question generation
-    provider = get_provider("azure")
-    model_name: str | None = getattr(provider, "name", None)
+        seen = {question.title.strip().lower() for question in questions}
+        for question in batch:
+            if question.title.strip().lower() in seen:
+                continue
+            question.number = len(questions) + 1
+            questions.append(question)
+            seen.add(question.title.strip().lower())
 
-    full_text = ""
-    async for event in provider.stream_chat(
-        messages,
-        temperature=0.6,
-        max_tokens=4000,
-    ):
-        if event.type == "delta":
-            full_text += event.text
+    if not questions:
+        raise ValidationError(
+            "The generator could not produce usable questions for those topics. "
+            "Try describing the topics more specifically, or lower the count."
+        )
 
-    questions = _parse_questions(full_text, req.count)
+    # Execute every reference solution: correct the expected values the model
+    # guessed wrong, drop cases it cannot survive, capture real trace output.
+    questions, warnings = await verification.verify_questions(questions)
+    verified_count = sum(1 for question in questions if question.tests_verified)
 
-    # ── Persist the generated set ──────────────────────────────────────────
     generated_at = datetime.now(timezone.utc)
-    questions_json = [q.model_dump(mode="json") for q in questions]
+    provider_name = getattr(get_provider("azure"), "name", None)
 
     coding_set = CodingSet(
         vault_id=vault_id,
@@ -356,9 +326,9 @@ async def generate_coding_questions(
         difficulty=req.difficulty,
         topics=req.topics,
         question_count=len(questions),
-        questions=questions_json,
+        questions=[question.model_dump(mode="json") for question in questions],
         subject_name=subject_name,
-        model_used=model_name,
+        model_used=provider_name,
     )
     db.add(coding_set)
     await db.flush()
@@ -368,6 +338,7 @@ async def generate_coding_questions(
         set_id=str(coding_set.id),
         vault_id=str(vault_id),
         count=len(questions),
+        verified=verified_count,
     )
 
     return CodingGenerateResponse(
@@ -379,29 +350,40 @@ async def generate_coding_questions(
         requested_count=req.count,
         generated_count=len(questions),
         topics=req.topics,
-        questions=questions,
+        questions=[question.public_copy() for question in questions],
         generated_at=generated_at,
-        model_used=model_name,
+        model_used=provider_name,
+        verified_count=verified_count,
+        runtime_available=is_language_executable(language),
+        warnings=warnings,
     )
 
 
-_GRADER_SYSTEM_PROMPT = """\
-You are an advanced sandboxed compiler and coding problem test runner.
-Your job is to dry-run/simulate the execution of the user's submitted code against the problem statement, examples, constraints, and standard reference solution.
+# ── Grading ───────────────────────────────────────────────────────────────────
 
-Return a JSON object with these EXACT keys:
-  "status"            : "Accepted" | "Wrong Answer" | "Runtime Error" | "Compilation Error" | "Time Limit Exceeded"
-  "test_cases_passed" : integer
-  "total_test_cases"  : integer
-  "feedback"          : string — detailed helpful review of the user's approach, code style, or logical flaws. If compilation/runtime error, explain exactly where.
-  "compiler_output"   : string or null — simulated stdout / stderr or exception traceback
 
-Rules:
-- Be extremely rigorous. If the code has syntax errors (e.g. missing colons, invalid braces) or runtime errors (e.g. IndexError, NameError, NullPointer), return status = "Compilation Error" or "Runtime Error" and provide the exact exception trace in compiler_output.
-- Check edge cases (e.g. empty lists, negative inputs, null values).
-- If the user submitted empty or gibberish code, it must fail with "Compilation Error" or "Wrong Answer".
-- Return ONLY the JSON object. No markdown backticks or prose.
-"""
+async def _load_question(
+    db: AsyncSession, vault_id: UUID, set_id: UUID, number: int
+) -> CodingQuestion | None:
+    """Load a stored question so hidden tests never round-trip through the client."""
+    result = await db.execute(
+        select(CodingSet).where(
+            CodingSet.id == set_id,
+            CodingSet.vault_id == vault_id,
+            CodingSet.deleted_at.is_(None),
+        )
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        return None
+    for raw in row.questions or []:
+        if int(raw.get("number", 0)) == number:
+            try:
+                return CodingQuestion(**raw)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("coding.grade.question_unreadable", error=str(exc))
+                return None
+    return None
 
 
 async def grade_coding_question(
@@ -410,76 +392,48 @@ async def grade_coding_question(
     vault_id: UUID,
     req: CodingGradeRequest,
 ) -> CodingGradeResponse:
-    """Grade a user's code submission using Azure OpenAI (GPT-4o) as a simulator judge."""
+    """Grade a submission — by really running it whenever that is possible."""
     vault = await _get_active_vault(db, vault_id)
     await _assert_squad_member(db, vault, user.id)
 
-    examples_text = "\n".join(
-        f"Example {i+1}:\nInput: {ex.input}\nOutput: {ex.output}\n"
-        for i, ex in enumerate(req.examples)
-    )
-    constraints_text = "\n".join(f"- {c}" for c in req.constraints)
+    question: CodingQuestion | None = None
+    if req.set_id and req.question_number:
+        question = await _load_question(db, vault_id, req.set_id, req.question_number)
 
-    user_prompt = f"""\
-Problem Title: {req.title}
-Language: {req.language}
-Question Type: {req.type}
+    if question is None:
+        # Freshly generated, unsaved, or a legacy client: grade from the payload.
+        if not req.problem or not req.solution:
+            raise ValidationError("Could not find the question for this submission.")
+        question = CodingQuestion(
+            number=req.question_number or 1,
+            type=req.type,
+            title=req.title or "Coding problem",
+            language=normalise_language(req.language),
+            difficulty="medium",
+            problem=req.problem,
+            solution=req.solution,
+            examples=req.examples,
+            constraints=req.constraints,
+        )
 
-[PROBLEM STATEMENT]
-{req.problem}
+    return await grading.grade(question, req.code, sample_only=req.sample_only)
 
-[EXAMPLES]
-{examples_text}
 
-[CONSTRAINTS]
-{constraints_text}
+# ── Runtime capability ────────────────────────────────────────────────────────
 
-[REFERENCE SOLUTION]
-{req.solution}
 
-[USER SUBMISSION]
-{req.code}
-
-Evaluate the user's code. Simulate compilation and execution with multiple test cases (including edge cases).
-Return only the JSON object.
-"""
-
-    messages = [
-        {"role": "system", "content": _GRADER_SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
+def list_runtimes() -> list[CodingRuntimeInfo]:
+    """Which languages this server can actually execute."""
+    return [
+        CodingRuntimeInfo(
+            language=info.language,
+            display=info.display,
+            available=info.available,
+            version=info.version,
+            reason=info.reason,
+        )
+        for info in detect_runtimes().values()
     ]
-
-    provider = get_provider("azure")
-    full_text = ""
-    async for event in provider.stream_chat(
-        messages,
-        temperature=0.2,
-        max_tokens=2500,
-    ):
-        if event.type == "delta":
-            full_text += event.text
-
-    # Parse response
-    raw = full_text.strip()
-    raw = re.sub(r"^```(?:json)?", "", raw, flags=re.IGNORECASE).strip()
-    raw = re.sub(r"```$", "", raw).strip()
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
-        if match:
-            data = json.loads(match.group(0))
-        else:
-            raise ValidationError(f"Grader returned invalid JSON: {exc}") from exc
-
-    return CodingGradeResponse(
-        status=data.get("status", "Wrong Answer"),
-        test_cases_passed=data.get("test_cases_passed", 0),
-        total_test_cases=data.get("total_test_cases", 5),
-        feedback=data.get("feedback", "No feedback provided."),
-        compiler_output=data.get("compiler_output"),
-    )
 
 
 # ── List / Get / Delete saved sets ────────────────────────────────────────────
@@ -538,8 +492,12 @@ async def get_coding_set(
     if not row:
         raise ValidationError("Coding set not found.")
 
-    # Reconstruct CodingQuestion objects from stored JSONB
-    questions = [CodingQuestion(**q) for q in row.questions]
+    questions: list[CodingQuestion] = []
+    for raw in row.questions or []:
+        try:
+            questions.append(CodingQuestion(**raw))
+        except Exception as exc:  # noqa: BLE001 — never lose a whole set to one bad row
+            logger.warning("coding.set.question_unreadable", set_id=str(set_id), error=str(exc))
 
     return CodingSetDetail(
         id=str(row.id),
@@ -548,8 +506,8 @@ async def get_coding_set(
         language=row.language,
         difficulty=row.difficulty,
         topics=row.topics,
-        question_count=row.question_count,
-        questions=questions,
+        question_count=len(questions),
+        questions=[question.public_copy() for question in questions],
         subject_name=row.subject_name,
         model_used=row.model_used,
         created_by=str(row.created_by),

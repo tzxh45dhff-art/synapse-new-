@@ -66,8 +66,11 @@ export function UploadDropzone({ vaultId, squadId, onUploadComplete }: UploadDro
 
       // Poll status briefly to show stage updates
       await pollStatus(item.id, urlResp.resource_id);
-    } catch (err: any) {
-      updateUpload(item.id, { phase: "error", error: err?.message ?? "Upload failed" });
+    } catch (err: unknown) {
+      updateUpload(item.id, {
+        phase: "error",
+        error: err instanceof Error ? err.message : "Upload failed",
+      });
     }
   }
 

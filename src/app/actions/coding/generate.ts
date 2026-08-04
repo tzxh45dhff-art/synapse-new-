@@ -6,6 +6,7 @@ import type {
   CodingGenerateResponse,
   CodingGradeRequest,
   CodingGradeResponse,
+  CodingRuntimeInfo,
 } from "@/types/coding";
 
 export async function generateCodingQuestions(
@@ -24,3 +25,8 @@ export async function gradeCodingQuestion(
   return api.post<CodingGradeResponse>(`/vaults/${vaultId}/coding/grade`, data);
 }
 
+/** Which languages the grading server can execute for real. */
+export async function listCodingRuntimes(): Promise<CodingRuntimeInfo[]> {
+  const api = await authedApi();
+  return api.get<CodingRuntimeInfo[]>(`/coding/runtimes`);
+}

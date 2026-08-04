@@ -13,7 +13,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 echo -e "${CYAN}============================================================${NC}"
-echo -e "${CYAN}   🚀 Starting Laptop Backend + Cloudflare Tunnel          ${NC}"
+echo -e "${CYAN}   🚀 Starting Laptop Backend + Ngrok Tunnel               ${NC}"
 echo -e "${CYAN}============================================================${NC}"
 
 # Cleanup spawned child processes on exit
@@ -44,20 +44,20 @@ fi
 # Ensure port 8000 is free before starting
 lsof -ti:8000 | xargs kill -9 2>/dev/null || true
 
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 &
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload &
 BACKEND_PID=$!
 echo -e "${GREEN} ✓ Backend started (PID: $BACKEND_PID)${NC}"
 
-# 2. Start Cloudflare Tunnel
-echo -e "${GREEN}[2/2] Exposing backend to Vercel via Cloudflare Tunnel...${NC}"
+# 2. Start Ngrok Tunnel
+echo -e "${GREEN}[2/2] Connecting Ngrok Tunnel to Vercel...${NC}"
 cd "$ROOT_DIR"
-npx cloudflared tunnel --url http://localhost:8000 &
+npx ngrok http --url=nimbly-unroasted-gaffe.ngrok-free.dev 8000 &
 TUNNEL_PID=$!
 
 echo -e "${CYAN}============================================================${NC}"
-echo -e "${CYAN} 🎉 Both Backend & Tunnel are active!                       ${NC}"
-echo -e "${CYAN} Copy the https://...trycloudflare.com URL shown above     ${NC}"
-echo -e "${CYAN} Press Ctrl+C anytime to stop both services.                ${NC}"
+echo -e "${CYAN} 🎉 Bunker Backend & Tunnel are live!                        ${NC}"
+echo -e "${CYAN} URL: https://nimbly-unroasted-gaffe.ngrok-free.dev        ${NC}"
+echo -e "${CYAN} Press Ctrl+C anytime to stop.                             ${NC}"
 echo -e "${CYAN}============================================================${NC}"
 
 wait $BACKEND_PID $TUNNEL_PID

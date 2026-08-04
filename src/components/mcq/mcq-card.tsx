@@ -4,23 +4,25 @@ import { useState } from "react";
 import { CheckCircle2, XCircle, Info, ChevronDown, ChevronUp } from "lucide-react";
 import type { MCQQuestion } from "@/types/mcq";
 
+type OptionKey = "A" | "B" | "C" | "D";
+
 interface Props {
   question: MCQQuestion;
-  onAnswer: (correct: boolean) => void;
+  /** Reports the chosen option too, so the review screen can show it back. */
+  onAnswer: (questionNumber: number, key: OptionKey, correct: boolean) => void;
   disabled: boolean;
 }
 
 export function MCQCard({ question, onAnswer, disabled }: Props) {
-  const [selectedKey, setSelectedKey] = useState<"A" | "B" | "C" | "D" | null>(null);
+  const [selectedKey, setSelectedKey] = useState<OptionKey | null>(null);
   const [showExplanation, setShowExplanation] = useState(false);
 
   const hasAnswered = selectedKey !== null;
 
-  function handleSelect(key: "A" | "B" | "C" | "D") {
+  function handleSelect(key: OptionKey) {
     if (hasAnswered || disabled) return;
     setSelectedKey(key);
-    const isCorrect = key === question.correct_answer;
-    onAnswer(isCorrect);
+    onAnswer(question.number, key, key === question.correct_answer);
     setShowExplanation(true);
   }
 

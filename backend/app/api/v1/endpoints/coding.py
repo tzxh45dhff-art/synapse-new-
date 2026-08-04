@@ -12,12 +12,19 @@ from app.schemas.coding_schema import (
     CodingGenerateResponse,
     CodingGradeRequest,
     CodingGradeResponse,
+    CodingRuntimeInfo,
     CodingSetListItem,
     CodingSetDetail,
 )
 from app.services import coding_service
 
 router = APIRouter()
+
+
+@router.get("/coding/runtimes", response_model=list[CodingRuntimeInfo])
+async def list_coding_runtimes(current_user: CurrentUserDep) -> list[CodingRuntimeInfo]:
+    """Which languages this server can execute for real (vs. AI-reviewed)."""
+    return coding_service.list_runtimes()
 
 
 @router.post("/vaults/{vault_id}/coding/generate", response_model=CodingGenerateResponse)
@@ -38,7 +45,11 @@ async def grade_coding_question(
     current_user: CurrentUserDep,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> CodingGradeResponse:
-    """Grade a user's code submission using the AI simulator judge."""
+    """Grade a submission by executing it against the question's verified tests.
+
+    Falls back to AI review only when the server has no runtime for the language
+    or the question predates executable test cases; the response says which.
+    """
     return await coding_service.grade_coding_question(db, current_user, vault_id, data)
 
 

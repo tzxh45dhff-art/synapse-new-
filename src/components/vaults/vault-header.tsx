@@ -25,18 +25,14 @@ export function VaultHeader({ vault, squadId }: VaultHeaderProps) {
   const stats = vault.statistics;
   const pathname = usePathname();
 
-  const isCodingSubject =
-    vault.subject?.icon === "💻" ||
-    vault.subject?.name?.toLowerCase().includes("coding") ||
-    vault.subject?.name?.toLowerCase().includes("programming") ||
-    vault.subject?.name?.toLowerCase().includes("dsa") ||
-    vault.subject?.name?.toLowerCase().includes("leetcode");
-
+  // Every vault gets every study tool. Gating "Coding Questions" on the subject
+  // name meant the feature was invisible unless a vault happened to be called
+  // something like "DSA" — the tools are useful for any subject.
   const tabs = [
     { label: "Resources", seg: "resources" },
     { label: "Notes", seg: "notes" },
     { label: "MCQ Practice", seg: "mcq" },
-    ...(isCodingSubject ? [{ label: "Coding Questions", seg: "coding" }] : []),
+    { label: "Coding Questions", seg: "coding" },
   ];
 
   return (

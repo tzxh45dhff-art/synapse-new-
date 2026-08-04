@@ -11,6 +11,7 @@ interface SquadTabsProps {
 
 const tabs = [
   { label: "Overview", href: "" },
+  { label: "Vaults", href: "/vaults" },
   { label: "Chat", href: "/chat" },
   { label: "Members", href: "/members" },
   { label: "Settings", href: "/settings" },

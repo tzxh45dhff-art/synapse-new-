@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Terminal, Code2, Bug, Eye, PenLine, BookOpen,
   FileText, Settings, ArrowRight, Loader2, Sparkles, Check, ListChecks,
+  ShieldCheck, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,8 +13,10 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type {
   CodingDifficulty,
+  CodingLanguage,
   CodingQuestionType,
   CodingGenerateRequest,
+  CodingRuntimeInfo,
 } from "@/types/coding";
 import type { ResourceListItem } from "@/types/vault";
 
@@ -22,6 +25,32 @@ interface Props {
   isPending: boolean;
   hasResources: boolean;
   resources: ResourceListItem[];
+  /** Which languages the grading server can execute for real. */
+  runtimes?: CodingRuntimeInfo[];
+  /** Vault subject name, used to preselect a sensible language. */
+  defaultLanguage?: string;
+}
+
+const LANGUAGES: { value: CodingLanguage; label: string }[] = [
+  { value: "python", label: "Python" },
+  { value: "javascript", label: "JavaScript" },
+  { value: "typescript", label: "TypeScript" },
+  { value: "java", label: "Java" },
+  { value: "cpp", label: "C++" },
+  { value: "c", label: "C" },
+  { value: "go", label: "Go" },
+];
+
+/** Mirror of the backend's subject-name heuristic, so the UI preselects the same thing. */
+function inferLanguage(subject?: string): CodingLanguage {
+  const name = ` ${(subject ?? "").toLowerCase()} `;
+  const table: [string, CodingLanguage][] = [
+    ["c++", "cpp"], ["cpp", "cpp"], ["typescript", "typescript"],
+    ["javascript", "javascript"], ["golang", "go"], [" go ", "go"],
+    ["java", "java"], ["python", "python"],
+  ];
+  for (const [needle, lang] of table) if (name.includes(needle)) return lang;
+  return /\bc\b/.test(name) ? "c" : "python";
 }
 
 const DIFFICULTIES: { value: CodingDifficulty; label: string; desc: string; color: string }[] = [
@@ -65,8 +94,11 @@ const QUESTION_TYPES: {
 
 const COUNT_OPTIONS = [1, 2, 3, 5, 7, 10];
 
-export function CodingWizard({ onSubmit, isPending, hasResources, resources }: Props) {
+export function CodingWizard({
+  onSubmit, isPending, hasResources, resources, runtimes = [], defaultLanguage,
+}: Props) {
   const aiReady = resources.filter((r) => r.is_ai_ready);
+  const [language, setLanguage] = useState<CodingLanguage>(() => inferLanguage(defaultLanguage));
   const [difficulty, setDifficulty] = useState<CodingDifficulty>("medium");
   const [selectedTypes, setSelectedTypes] = useState<CodingQuestionType[]>(["solve", "debug"]);
   const [count, setCount] = useState(5);
@@ -90,10 +122,19 @@ export function CodingWizard({ onSubmit, isPending, hasResources, resources }: P
     );
   }
 
+  const runtimeFor = useMemo(() => {
+    const map = new Map(runtimes.map((r) => [r.language, r]));
+    return (lang: CodingLanguage) => map.get(lang);
+  }, [runtimes]);
+
+  const selectedRuntime = runtimeFor(language);
+  const canExecute = runtimes.length === 0 || selectedRuntime?.available !== false;
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!topics.trim()) return;
     onSubmit({
+      language,
       difficulty,
       question_types: selectedTypes,
       count,
@@ -137,6 +178,51 @@ export function CodingWizard({ onSubmit, isPending, hasResources, resources }: P
         />
         <p className="text-xs text-zinc-500">
           Specify the data structures, algorithms, or programming concepts to generate questions for.
+        </p>
+      </div>
+
+      {/* Language */}
+      <div className="space-y-3">
+        <Label className="text-sm text-zinc-300 font-medium">Language</Label>
+        <div className="flex flex-wrap gap-2">
+          {LANGUAGES.map((opt) => {
+            const runtime = runtimeFor(opt.value);
+            const unavailable = runtime?.available === false;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setLanguage(opt.value)}
+                title={unavailable ? runtime?.reason ?? undefined : runtime?.version ?? undefined}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border transition-all duration-200
+                  ${language === opt.value
+                    ? "border-emerald-500 bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/30"
+                    : "border-white/[0.08] bg-white/[0.02] text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-300"
+                  }`}
+              >
+                {opt.label}
+                {runtime && (
+                  runtime.available
+                    ? <ShieldCheck className="w-3 h-3 text-emerald-500/70" />
+                    : <AlertTriangle className="w-3 h-3 text-amber-500/70" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-zinc-500 leading-relaxed">
+          {canExecute ? (
+            <>
+              <ShieldCheck className="w-3 h-3 inline-block mr-1 -mt-0.5 text-emerald-500/70" />
+              Submissions in this language are compiled and run against real hidden test cases.
+            </>
+          ) : (
+            <>
+              <AlertTriangle className="w-3 h-3 inline-block mr-1 -mt-0.5 text-amber-500/70" />
+              {selectedRuntime?.reason ?? "This language has no runtime on the server"} — submissions
+              will be reviewed by AI instead of executed.
+            </>
+          )}
         </p>
       </div>
 

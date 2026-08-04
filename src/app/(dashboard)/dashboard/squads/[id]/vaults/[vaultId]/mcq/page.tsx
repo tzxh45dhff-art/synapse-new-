@@ -42,8 +42,9 @@ export default function MCQPage({ params }: Props) {
   const [isPending, startTransition] = useTransition();
   const [questions, setQuestions] = useState<MCQQuestion[]>([]);
   const [score, setScore] = useState(0);
-  const [answersCount, setAnswersCount] = useState(0);
+  const [answers, setAnswers] = useState<Record<number, "A" | "B" | "C" | "D">>({});
   const scoreRef = useRef(0);
+  const answersCount = Object.keys(answers).length;
 
   // Wizard input history (for retry)
   const [lastRequest, setLastRequest] = useState<MCQGenerateRequest | null>(null);
@@ -95,15 +96,13 @@ export default function MCQPage({ params }: Props) {
           return;
         }
         setQuestions(response.questions);
-        setScore(0);
-        setAnswersCount(0);
-        scoreRef.current = 0;
+        resetSession();
         setStage("quiz");
         toast.success(`Successfully generated ${response.questions.length} questions!`);
         // Refresh saved sets list (the new set was auto-saved)
         fetchSavedSets();
-      } catch (err: any) {
-        toast.error(err?.message ?? "Failed to generate MCQs.");
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : "Failed to generate MCQs.");
       }
     });
   }
@@ -114,13 +113,11 @@ export default function MCQPage({ params }: Props) {
     try {
       const detail = await getMCQSet(vaultId, setId);
       setQuestions(detail.questions);
-      setScore(0);
-      setAnswersCount(0);
-      scoreRef.current = 0;
+      resetSession();
       setStage("quiz");
       toast.success(`Loaded "${detail.title}" — ${detail.question_count} questions`);
-    } catch (err: any) {
-      toast.error(err?.message ?? "Failed to load quiz set.");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to load quiz set.");
     } finally {
       setLoadingSetId(null);
     }
@@ -132,44 +129,54 @@ export default function MCQPage({ params }: Props) {
       await deleteMCQSet(vaultId, setId);
       setSavedSets((prev) => prev.filter((s) => s.id !== setId));
       toast.success("Quiz set deleted.");
-    } catch (err: any) {
-      toast.error(err?.message ?? "Failed to delete quiz set.");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete quiz set.");
     }
   }
 
+  function resetSession() {
+    setScore(0);
+    setAnswers({});
+    scoreRef.current = 0;
+  }
+
+  const finishSession = useCallback(
+    (answered: number) => {
+      const total = questions.length;
+      setStage("results");
+      if (answered > 0 && total > 0) {
+        recordPracticeAttempt({
+          vault_id: vaultId,
+          session_type: "mcq",
+          score_pct: Math.round((scoreRef.current / total) * 100),
+          topic: vault?.subject?.name ?? vault?.title,
+        }).catch(() => {
+          /* best-effort tracking; never block the results screen */
+        });
+      }
+    },
+    [questions.length, vault, vaultId],
+  );
+
   // Answer callback
-  function handleAnswer(correct: boolean) {
+  function handleAnswer(questionNumber: number, key: "A" | "B" | "C" | "D", correct: boolean) {
     if (correct) {
       scoreRef.current += 1;
       setScore((s) => s + 1);
     }
-    setAnswersCount((c) => {
-      const nextCount = c + 1;
-      if (nextCount === questions.length) {
-        // finished
-        const total = questions.length;
-        const finalScore = scoreRef.current;
-        setTimeout(() => setStage("results"), 1200);
-        if (total > 0) {
-          recordPracticeAttempt({
-            vault_id: vaultId,
-            session_type: "mcq",
-            score_pct: Math.round((finalScore / total) * 100),
-            topic: vault?.subject?.name ?? vault?.title,
-          }).catch(() => {
-            /* best-effort tracking; never block the results screen */
-          });
-        }
+    setAnswers((prev) => {
+      const next = { ...prev, [questionNumber]: key };
+      // Auto-advance to the results screen once every question is answered.
+      if (Object.keys(next).length === questions.length) {
+        window.setTimeout(() => finishSession(questions.length), 1200);
       }
-      return nextCount;
+      return next;
     });
   }
 
   // Retake same quiz
   function handleRetry() {
-    setScore(0);
-    setAnswersCount(0);
-    scoreRef.current = 0;
+    resetSession();
     setStage("quiz");
     toast.info("Retaking current quiz...");
   }
@@ -177,9 +184,7 @@ export default function MCQPage({ params }: Props) {
   // Back to setup
   function handleBackToWizard() {
     setQuestions([]);
-    setScore(0);
-    setAnswersCount(0);
-    scoreRef.current = 0;
+    resetSession();
     setStage("wizard");
   }
 
@@ -315,6 +320,15 @@ export default function MCQPage({ params }: Props) {
                     style={{ width: `${(answersCount / questions.length) * 100}%` }}
                   />
                 </div>
+                {answersCount > 0 && answersCount < questions.length && (
+                  <button
+                    type="button"
+                    onClick={() => finishSession(answersCount)}
+                    className="px-3 py-1.5 text-xs font-semibold text-violet-400 hover:text-white border border-violet-500/10 hover:border-violet-500/30 hover:bg-violet-600/10 rounded-lg transition-all"
+                  >
+                    Finish now
+                  </button>
+                )}
               </div>
             </div>
 
@@ -352,21 +366,48 @@ export default function MCQPage({ params }: Props) {
                     key={`review-${q.number}`}
                     className="bg-white/[0.01] border border-white/[0.04] rounded-2xl p-5 space-y-3"
                   >
-                    <p className="text-xs text-zinc-500 font-mono">QUESTION {q.number}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs text-zinc-500 font-mono">QUESTION {q.number}</p>
+                      {answers[q.number] === undefined ? (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+                          Skipped
+                        </span>
+                      ) : answers[q.number] === q.correct_answer ? (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-green-500/80">
+                          Correct
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-red-500/80">
+                          Incorrect
+                        </span>
+                      )}
+                    </div>
                     <p className="text-sm font-medium text-white">{q.question}</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
-                      {q.options.map((opt) => (
-                        <div
-                          key={opt.key}
-                          className={`p-2.5 rounded-lg border
-                            ${opt.key === q.correct_answer
-                              ? "border-green-500/20 bg-green-500/5 text-green-400"
-                              : "border-white/[0.04] bg-white/[0.005] text-zinc-500"
-                            }`}
-                        >
-                          <span className="font-semibold mr-1.5">{opt.key}.</span> {opt.text}
-                        </div>
-                      ))}
+                      {q.options.map((opt) => {
+                        const picked = answers[q.number] === opt.key;
+                        const isCorrect = opt.key === q.correct_answer;
+                        return (
+                          <div
+                            key={opt.key}
+                            className={`p-2.5 rounded-lg border flex items-start gap-1.5
+                              ${isCorrect
+                                ? "border-green-500/20 bg-green-500/5 text-green-400"
+                                : picked
+                                  ? "border-red-500/20 bg-red-500/5 text-red-400"
+                                  : "border-white/[0.04] bg-white/[0.005] text-zinc-500"
+                              }`}
+                          >
+                            <span className="font-semibold">{opt.key}.</span>
+                            <span className="flex-1">{opt.text}</span>
+                            {picked && (
+                              <span className="text-[10px] font-bold uppercase tracking-wider shrink-0 opacity-70">
+                                your pick
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                     <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.04] text-xs text-zinc-400 mt-2 leading-relaxed">
                       <span className="font-semibold text-violet-300 block mb-1">Explanation:</span>

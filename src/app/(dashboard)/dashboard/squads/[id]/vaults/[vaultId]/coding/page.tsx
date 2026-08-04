@@ -1,18 +1,23 @@
 "use client";
 
-import { use, useCallback, useEffect, useState, useTransition } from "react";
+import { use, useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { Terminal, AlertCircle, RotateCcw, Sparkles, ChevronRight, Clock, Trash2, BookOpen } from "lucide-react";
+import {
+  Terminal, AlertCircle, RotateCcw, Sparkles, ChevronRight, Clock, Trash2,
+  BookOpen, CheckCircle2, CircleDashed, AlertTriangle,
+} from "lucide-react";
 import { toast } from "sonner";
 import { VaultHeader } from "@/components/vaults/vault-header";
 import { CodingWizard } from "@/components/coding/coding-wizard";
 import { CodingWorkspace } from "@/components/coding/coding-workspace";
 import { getVault } from "@/app/actions/vaults/queries";
 import { listResources } from "@/app/actions/resources/queries";
-import { generateCodingQuestions } from "@/app/actions/coding/generate";
+import { generateCodingQuestions, listCodingRuntimes } from "@/app/actions/coding/generate";
 import { listCodingSets, getCodingSet, deleteCodingSet } from "@/app/actions/coding/sets";
 import type { VaultDetail, ResourceListItem } from "@/types/vault";
-import type { CodingQuestion, CodingGenerateRequest, CodingSetListItem } from "@/types/coding";
+import type {
+  CodingQuestion, CodingGenerateRequest, CodingSetListItem, CodingRuntimeInfo, GradeStatus,
+} from "@/types/coding";
 
 interface Props {
   params: Promise<{ id: string; vaultId: string }>;
@@ -40,6 +45,18 @@ const DIFF_COLORS: Record<string, string> = {
   mixed: "text-violet-400",
 };
 
+/** Solved state lives client-side, keyed by set, so progress survives a reload. */
+const progressKey = (setId: string | null) => `bunker.coding.progress.${setId ?? "unsaved"}`;
+
+function loadProgress(setId: string | null): Record<number, GradeStatus> {
+  try {
+    const raw = window.localStorage.getItem(progressKey(setId));
+    return raw ? (JSON.parse(raw) as Record<number, GradeStatus>) : {};
+  } catch {
+    return {};
+  }
+}
+
 export default function CodingQuestionsPage({ params }: Props) {
   const { id: squadId, vaultId } = use(params);
 
@@ -47,6 +64,7 @@ export default function CodingQuestionsPage({ params }: Props) {
   const [vault, setVault] = useState<VaultDetail | null>(null);
   const [resources, setResources] = useState<ResourceListItem[]>([]);
   const [loadingVault, setLoadingVault] = useState(true);
+  const [runtimes, setRuntimes] = useState<CodingRuntimeInfo[]>([]);
 
   // Question state
   const [stage, setStage] = useState<Stage>("wizard");
@@ -54,11 +72,36 @@ export default function CodingQuestionsPage({ params }: Props) {
   const [questions, setQuestions] = useState<CodingQuestion[]>([]);
   const [generatedLanguage, setGeneratedLanguage] = useState("");
   const [activeQuestionIndex, setActiveQuestionIndex] = useState<number | null>(null);
+  const [activeSetId, setActiveSetId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<Record<number, GradeStatus>>({});
+  const [setWarnings, setSetWarnings] = useState<string[]>([]);
 
   // Saved sets
   const [savedSets, setSavedSets] = useState<CodingSetListItem[]>([]);
   const [loadingSets, setLoadingSets] = useState(true);
   const [loadingSetId, setLoadingSetId] = useState<string | null>(null);
+
+  const solvedCount = useMemo(
+    () => questions.filter((q) => progress[q.number] === "Accepted").length,
+    [questions, progress],
+  );
+
+  const recordResult = useCallback(
+    (questionNumber: number, status: GradeStatus) => {
+      setProgress((prev) => {
+        // Never downgrade a solved problem to a later failed experiment.
+        if (prev[questionNumber] === "Accepted" && status !== "Accepted") return prev;
+        const next = { ...prev, [questionNumber]: status };
+        try {
+          window.localStorage.setItem(progressKey(activeSetId), JSON.stringify(next));
+        } catch {
+          /* progress tracking is a convenience, not a contract */
+        }
+        return next;
+      });
+    },
+    [activeSetId],
+  );
 
   const fetchVaultData = useCallback(async () => {
     try {
@@ -89,6 +132,11 @@ export default function CodingQuestionsPage({ params }: Props) {
   useEffect(() => {
     fetchVaultData();
     fetchSavedSets();
+    listCodingRuntimes()
+      .then(setRuntimes)
+      .catch(() => {
+        /* capability probe is advisory — the grader still works without it */
+      });
   }, [fetchVaultData, fetchSavedSets]);
 
   function handleGenerate(data: CodingGenerateRequest) {
@@ -101,13 +149,24 @@ export default function CodingQuestionsPage({ params }: Props) {
         }
         setGeneratedLanguage(response.language);
         setQuestions(response.questions);
+        setActiveSetId(response.id);
+        setProgress(loadProgress(response.id));
+        setSetWarnings(response.warnings ?? []);
         setStage("questions");
         setActiveQuestionIndex(null);
-        toast.success(`Generated ${response.questions.length} coding questions!`);
+
+        const verified = response.verified_count ?? 0;
+        toast.success(
+          verified > 0
+            ? `Generated ${response.questions.length} problems — ${verified} with verified test cases.`
+            : `Generated ${response.questions.length} coding questions.`,
+        );
         // Refresh saved sets list (the new set was auto-saved)
         fetchSavedSets();
-      } catch (err: any) {
-        toast.error(err?.message ?? "Failed to generate coding questions.");
+      } catch (err: unknown) {
+        toast.error(
+          err instanceof Error ? err.message : "Failed to generate coding questions.",
+        );
       }
     });
   }
@@ -119,11 +178,14 @@ export default function CodingQuestionsPage({ params }: Props) {
       const detail = await getCodingSet(vaultId, setId);
       setGeneratedLanguage(detail.language);
       setQuestions(detail.questions);
+      setActiveSetId(detail.id);
+      setProgress(loadProgress(detail.id));
+      setSetWarnings([]);
       setStage("questions");
       setActiveQuestionIndex(null);
       toast.success(`Loaded "${detail.title}" — ${detail.question_count} problems`);
-    } catch (err: any) {
-      toast.error(err?.message ?? "Failed to load problem set.");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to load problem set.");
     } finally {
       setLoadingSetId(null);
     }
@@ -135,14 +197,17 @@ export default function CodingQuestionsPage({ params }: Props) {
       await deleteCodingSet(vaultId, setId);
       setSavedSets((prev) => prev.filter((s) => s.id !== setId));
       toast.success("Problem set deleted.");
-    } catch (err: any) {
-      toast.error(err?.message ?? "Failed to delete problem set.");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete problem set.");
     }
   }
 
   function handleReset() {
     setQuestions([]);
     setActiveQuestionIndex(null);
+    setActiveSetId(null);
+    setProgress({});
+    setSetWarnings([]);
     setStage("wizard");
   }
 
@@ -185,6 +250,8 @@ export default function CodingQuestionsPage({ params }: Props) {
               isPending={isPending}
               hasResources={hasResources}
               resources={resources}
+              runtimes={runtimes}
+              defaultLanguage={vault?.subject?.name}
             />
 
             {/* ── Saved Problem Sets ────────────────────────────────────── */}
@@ -282,7 +349,10 @@ export default function CodingQuestionsPage({ params }: Props) {
                     <div>
                       <h2 className="text-base font-bold text-white">Coding Problems</h2>
                       <p className="text-xs text-zinc-500 capitalize">
-                        {questions.length} problems generated in {generatedLanguage}
+                        {questions.length} problems in {generatedLanguage}
+                        <span className="text-zinc-600 normal-case">
+                          {" "}· {solvedCount} solved
+                        </span>
                       </p>
                     </div>
                   </div>
@@ -297,27 +367,62 @@ export default function CodingQuestionsPage({ params }: Props) {
                   </button>
                 </div>
 
+                {/* Set-level progress */}
+                <div className="h-1 rounded-full bg-white/[0.04] overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-500 transition-all duration-500"
+                    style={{ width: `${questions.length ? (solvedCount / questions.length) * 100 : 0}%` }}
+                  />
+                </div>
+
+                {/* Anything the verifier could not guarantee */}
+                {setWarnings.length > 0 && (
+                  <div className="space-y-1.5 rounded-xl border border-amber-500/15 bg-amber-500/[0.03] p-3.5">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="text-xs font-semibold text-amber-300">
+                        Notes from test verification
+                      </span>
+                    </div>
+                    <ul className="space-y-1 pl-5.5">
+                      {setWarnings.map((warning, i) => (
+                        <li key={i} className="text-[11px] text-amber-200/70 leading-relaxed">
+                          {warning}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 {/* Problems Table/Cards List */}
                 <div className="border border-white/[0.06] rounded-2xl overflow-hidden bg-white/[0.01] divide-y divide-white/[0.06]">
                   {questions.map((q, idx) => {
                     const typeConf = TYPE_CONFIG[q.type] ?? TYPE_CONFIG.solve;
                     const diffConf = DIFF_CONFIG[q.difficulty] ?? DIFF_CONFIG.medium;
+                    const status = progress[q.number];
+                    const solved = status === "Accepted";
                     return (
                       <div
                         key={idx}
                         className="flex items-center justify-between p-4 sm:p-5 hover:bg-white/[0.01] transition-all"
                       >
                         <div className="flex items-center gap-4 min-w-0">
-                          {/* Number */}
-                          <span className="text-xs font-mono text-zinc-600 font-bold shrink-0 w-6">
-                            {idx + 1}
+                          {/* Status */}
+                          <span className="shrink-0 w-6 flex items-center justify-center" title={status ?? "Not attempted"}>
+                            {solved ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            ) : status ? (
+                              <CircleDashed className="w-4 h-4 text-amber-500/70" />
+                            ) : (
+                              <span className="text-xs font-mono text-zinc-600 font-bold">{idx + 1}</span>
+                            )}
                           </span>
 
                           <div className="space-y-1.5 min-w-0">
                             {/* Title */}
                             <button
                               onClick={() => setActiveQuestionIndex(idx)}
-                              className="text-sm sm:text-base font-semibold text-white hover:text-emerald-400 transition-colors text-left truncate block"
+                              className={`text-sm sm:text-base font-semibold hover:text-emerald-400 transition-colors text-left truncate block ${solved ? "text-emerald-300/90" : "text-white"}`}
                             >
                               {q.title}
                             </button>
@@ -330,6 +435,11 @@ export default function CodingQuestionsPage({ params }: Props) {
                               <span className={`text-[10px] font-semibold shrink-0 uppercase tracking-wider ${diffConf.text}`}>
                                 {diffConf.label}
                               </span>
+                              {q.tests_verified && (
+                                <span className="text-[10px] text-emerald-500/70 font-semibold uppercase tracking-wider shrink-0">
+                                  · {(q.test_cases?.length ?? 0) + (q.hidden_test_count ?? 0)} tests
+                                </span>
+                              )}
                               {q.topic_hint && (
                                 <span className="text-[10px] text-zinc-500 font-medium truncate">
                                   · {q.topic_hint}
@@ -344,7 +454,7 @@ export default function CodingQuestionsPage({ params }: Props) {
                           onClick={() => setActiveQuestionIndex(idx)}
                           className="flex items-center gap-1 px-4 py-2 text-xs font-semibold text-emerald-400 hover:text-white border border-emerald-500/10 hover:border-emerald-500/30 hover:bg-emerald-600/10 rounded-xl transition-all shrink-0 ml-4"
                         >
-                          <span>Solve</span>
+                          <span>{solved ? "Review" : status ? "Retry" : "Solve"}</span>
                           <ChevronRight className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -367,10 +477,19 @@ export default function CodingQuestionsPage({ params }: Props) {
             ) : (
               // ── LEETCODE WORKSPACE MODE ──
               <CodingWorkspace
+                // Remount per problem so drafts, timer and results reset cleanly.
+                key={`${activeSetId ?? "unsaved"}-${questions[activeQuestionIndex].number}`}
                 question={questions[activeQuestionIndex]}
                 vaultId={vaultId}
+                setId={activeSetId}
                 topic={vault?.subject?.name ?? vault?.title}
+                index={activeQuestionIndex}
+                total={questions.length}
                 onBack={() => setActiveQuestionIndex(null)}
+                onNavigate={(next) =>
+                  setActiveQuestionIndex(Math.max(0, Math.min(next, questions.length - 1)))
+                }
+                onResult={recordResult}
               />
             )}
           </>

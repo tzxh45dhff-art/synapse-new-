@@ -68,8 +68,8 @@ export function CreateVaultDialog({ squadId, trigger }: CreateVaultDialogProps) 
         setOpen(false);
         reset();
         router.push(`/dashboard/squads/${squadId}/vaults/${vault.id}`);
-      } catch (err: any) {
-        setError(err?.message ?? "Failed to create vault.");
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Failed to create vault.");
       }
     });
   }

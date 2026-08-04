@@ -49,14 +49,24 @@ Return a JSON array where each element is an object with these exact keys:
   "question"      : string — the question text
   "options"       : array of 4 objects, each {"key":"A"|"B"|"C"|"D","text":"..."}
   "correct_answer": "A"|"B"|"C"|"D"
-  "explanation"   : string — why the answer is correct (2–4 sentences)
+  "explanation"   : string — why the answer is correct AND why the most
+                    tempting wrong option is wrong (2–4 sentences)
   "difficulty"    : "easy"|"medium"|"hard"
   "topic_hint"    : string — which sub-topic this tests (can be null)
 
-Rules:
-- All 4 distractors must be plausible, not obviously wrong
-- No duplicate questions
-- Do NOT include the answer inside the question text
+Question quality rules:
+- Exactly one option is defensibly correct. Never "All of the above",
+  "None of the above", "Both A and B", or any combination option.
+- Every distractor must be a real misconception a student could hold — a
+  plausible-but-wrong formula, an off-by-one, a swapped definition. Never
+  filler, jokes, or obviously absurd choices.
+- Keep all four options similar in length and grammatical form; the correct
+  one must not be the longest or the most detailed.
+- Do NOT give the answer away in the question text, and do not reuse a
+  distinctive phrase from the question in only the correct option.
+- Test understanding, not trivia: prefer "why/which/what happens if" over
+  "what year".
+- No duplicate or near-duplicate questions in the set.
 - JSON must be parseable with json.loads()
 """
 
@@ -131,6 +141,59 @@ def _parse_questions(raw: str, count: int) -> list[MCQQuestion]:
     return questions
 
 
+_OPTION_KEYS = ("A", "B", "C", "D")
+
+
+def _rebalance_answer_keys(questions: list[MCQQuestion]) -> list[MCQQuestion]:
+    """Spread the correct answers evenly across A–D.
+
+    Language models put the correct option at B or C far more often than
+    chance, which lets a learner score well by pattern-matching instead of
+    knowing the material. Rotating each question's options fixes the
+    distribution without changing any of the content.
+    """
+    balanced: list[MCQQuestion] = []
+    for position, question in enumerate(questions):
+        options = [option for option in question.options if option.key in _OPTION_KEYS]
+        if len(options) != len(_OPTION_KEYS):
+            balanced.append(question)
+            continue
+
+        ordered = sorted(options, key=lambda option: _OPTION_KEYS.index(option.key))
+        try:
+            current = _OPTION_KEYS.index(question.correct_answer)
+        except ValueError:
+            balanced.append(question)
+            continue
+
+        target = position % len(_OPTION_KEYS)
+        rotation = (current - target) % len(_OPTION_KEYS)
+        rotated = ordered[rotation:] + ordered[:rotation]
+
+        question.options = [
+            MCQOption(key=key, text=option.text)
+            for key, option in zip(_OPTION_KEYS, rotated)
+        ]
+        question.correct_answer = _OPTION_KEYS[target]
+        balanced.append(question)
+    return balanced
+
+
+def _dedupe(questions: list[MCQQuestion]) -> list[MCQQuestion]:
+    """Drop near-identical questions the model repeated."""
+    seen: set[str] = set()
+    unique: list[MCQQuestion] = []
+    for question in questions:
+        fingerprint = re.sub(r"\W+", "", question.question.lower())[:120]
+        if fingerprint in seen:
+            logger.info("mcq.dedupe.dropped", question=question.question[:80])
+            continue
+        seen.add(fingerprint)
+        question.number = len(unique) + 1
+        unique.append(question)
+    return unique
+
+
 async def _fetch_vault_context(
     db: AsyncSession, user_id: UUID, vault_id: UUID, topics: str
 ) -> list[str]:
@@ -197,7 +260,12 @@ async def generate_mcq(
         if event.type == "delta":
             full_text += event.text
 
-    questions = _parse_questions(full_text, req.count)
+    questions = _rebalance_answer_keys(_dedupe(_parse_questions(full_text, req.count)))
+    if not questions:
+        raise ValidationError(
+            "The generator could not produce usable questions for those topics. "
+            "Try describing the syllabus more specifically."
+        )
 
     # ── Persist the generated set ──────────────────────────────────────────
     generated_at = datetime.now(timezone.utc)

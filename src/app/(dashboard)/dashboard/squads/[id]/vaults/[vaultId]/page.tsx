@@ -5,8 +5,32 @@ import { listResources } from "@/app/actions/resources/queries";
 import { VaultHeader } from "@/components/vaults/vault-header";
 import { ResourceCard } from "@/components/resources/resource-card";
 import { Button } from "@/components/ui/button";
-import { Upload, Library } from "lucide-react";
+import { Upload, Library, FileText, ListChecks, Terminal } from "lucide-react";
 import type { VaultDetail, ResourceListItem } from "@/types/vault";
+
+const STUDY_TOOLS = [
+  {
+    seg: "notes",
+    label: "AI Notes",
+    description: "Turn your uploads into structured, exportable notes.",
+    Icon: FileText,
+    accent: "text-violet-400 bg-violet-500/10 border-violet-500/20",
+  },
+  {
+    seg: "mcq",
+    label: "MCQ Practice",
+    description: "Quiz yourself on this vault's material, with explanations.",
+    Icon: ListChecks,
+    accent: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20",
+  },
+  {
+    seg: "coding",
+    label: "Coding Questions",
+    description: "Solve problems in an editor that really runs your code.",
+    Icon: Terminal,
+    accent: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+  },
+] as const;
 
 interface Props {
   params: Promise<{ id: string; vaultId: string }>;
@@ -42,6 +66,29 @@ export default async function VaultDashboardPage({ params }: Props) {
           </Button>
         </Link>
       </div>
+
+      {/* Study tools — the point of a vault, one click from here */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">
+          Study Tools
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {STUDY_TOOLS.map(({ seg, label, description, Icon, accent }) => (
+            <Link
+              key={seg}
+              href={`/dashboard/squads/${squadId}/vaults/${vaultId}/${seg}`}
+              className="group rounded-2xl border border-white/[0.06] bg-white/[0.02] p-5
+                transition-all hover:border-white/[0.12] hover:bg-white/[0.04]"
+            >
+              <div className={`w-10 h-10 rounded-xl border flex items-center justify-center mb-3 ${accent}`}>
+                <Icon className="w-5 h-5" />
+              </div>
+              <p className="text-sm font-semibold text-white group-hover:text-white">{label}</p>
+              <p className="text-xs text-zinc-500 mt-1 leading-relaxed">{description}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
 
       {/* Recent resources */}
       {recent.length > 0 && (
