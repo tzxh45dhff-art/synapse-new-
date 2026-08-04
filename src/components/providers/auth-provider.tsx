@@ -38,6 +38,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
+    async function resolveProfile(authUser: User): Promise<Profile> {
+      try {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", authUser.id)
+          .maybeSingle();
+
+        if (profileData) {
+          return profileData as Profile;
+        }
+      } catch (err) {
+        console.warn("Profiles query failed, using user metadata fallback:", err);
+      }
+
+      return {
+        id: authUser.id,
+        email: authUser.email || "",
+        full_name: authUser.user_metadata?.full_name || authUser.user_metadata?.name || null,
+        display_name: authUser.user_metadata?.full_name || authUser.email?.split("@")[0] || "User",
+        avatar_url: authUser.user_metadata?.avatar_url || null,
+        university: null,
+        year_of_study: null,
+        timezone: "UTC",
+        onboarding_completed: true,
+      };
+    }
+
     async function getInitialSession() {
       try {
         const {
@@ -46,16 +74,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         if (session?.user) {
           if (mounted) setUser(session.user);
-          
-          const { data: profileData } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", session.user.id)
-            .single();
-            
-          if (mounted && profileData) {
-            setProfile(profileData as Profile);
-          }
+          const resolved = await resolveProfile(session.user);
+          if (mounted) setProfile(resolved);
         }
       } catch (error) {
         console.error("Error loading auth session:", error);
@@ -73,18 +93,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          // Only fetch profile if it's a SIGN_IN or we don't have it yet
-          if (event === "SIGNED_IN" || !profile) {
-            const { data: profileData } = await supabase
-              .from("profiles")
-              .select("*")
-              .eq("id", session.user.id)
-              .single();
-              
-            if (profileData) {
-              setProfile(profileData as Profile);
-            }
-          }
+          const resolved = await resolveProfile(session.user);
+          if (mounted) setProfile(resolved);
         } else {
           setProfile(null);
         }
@@ -97,7 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [supabase, profile]);
+  }, [supabase]);
 
   const signOut = async () => {
     startTransition(async () => {
