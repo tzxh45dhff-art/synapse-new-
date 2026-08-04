@@ -2,6 +2,7 @@
 
 Builds a structured prompt, calls the configured AI provider (OpenAI / Azure /
 Gemini), and parses the JSON response into validated MCQQuestion objects.
+Generated sets are automatically persisted to the database.
 """
 
 from __future__ import annotations
@@ -16,11 +17,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.vault import Vault, Subject
+from app.models.mcq_coding_set import MCQSet
 from app.schemas.mcq_schema import (
     MCQGenerateRequest,
     MCQGenerateResponse,
     MCQOption,
     MCQQuestion,
+    MCQSetListItem,
+    MCQSetDetail,
 )
 from app.schemas.auth import CurrentUser
 from app.services.ai.factory import get_provider
@@ -140,13 +144,22 @@ async def _fetch_vault_context(
         return []
 
 
+def _build_title(topics: str, difficulty: str) -> str:
+    """Derive a human-readable title for a saved MCQ set."""
+    # Take first 60 chars of topics, clean up
+    snippet = topics.strip()[:60].strip()
+    if len(topics.strip()) > 60:
+        snippet += "…"
+    return f"{snippet} ({difficulty.capitalize()})"
+
+
 async def generate_mcq(
     db: AsyncSession,
     user: CurrentUser,
     vault_id: UUID,
     req: MCQGenerateRequest,
 ) -> MCQGenerateResponse:
-    """Generate MCQs for a vault and return structured results."""
+    """Generate MCQs for a vault, persist them, and return structured results."""
     vault = await _get_active_vault(db, vault_id)
     await _assert_squad_member(db, vault, user.id)
 
@@ -186,7 +199,33 @@ async def generate_mcq(
 
     questions = _parse_questions(full_text, req.count)
 
+    # ── Persist the generated set ──────────────────────────────────────────
+    generated_at = datetime.now(timezone.utc)
+    questions_json = [q.model_dump(mode="json") for q in questions]
+
+    mcq_set = MCQSet(
+        vault_id=vault_id,
+        created_by=user.id,
+        title=_build_title(req.topics, req.difficulty),
+        difficulty=req.difficulty,
+        topics=req.topics,
+        question_count=len(questions),
+        questions=questions_json,
+        subject_name=subject_name,
+        model_used=model_name,
+    )
+    db.add(mcq_set)
+    await db.flush()
+
+    logger.info(
+        "mcq.set.saved",
+        set_id=str(mcq_set.id),
+        vault_id=str(vault_id),
+        count=len(questions),
+    )
+
     return MCQGenerateResponse(
+        id=str(mcq_set.id),
         vault_id=vault_id,
         subject_name=subject_name,
         difficulty=req.difficulty,
@@ -194,6 +233,106 @@ async def generate_mcq(
         generated_count=len(questions),
         topics=req.topics,
         questions=questions,
-        generated_at=datetime.now(timezone.utc),
+        generated_at=generated_at,
         model_used=model_name,
     )
+
+
+# ── List / Get / Delete saved sets ────────────────────────────────────────────
+
+
+async def list_mcq_sets(
+    db: AsyncSession,
+    user: CurrentUser,
+    vault_id: UUID,
+) -> list[MCQSetListItem]:
+    """List all non-deleted MCQ sets for a vault (accessible by any squad member)."""
+    vault = await _get_active_vault(db, vault_id)
+    await _assert_squad_member(db, vault, user.id)
+
+    stmt = (
+        select(MCQSet)
+        .where(MCQSet.vault_id == vault_id, MCQSet.deleted_at.is_(None))
+        .order_by(MCQSet.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+
+    return [
+        MCQSetListItem(
+            id=str(row.id),
+            title=row.title,
+            difficulty=row.difficulty,
+            question_count=row.question_count,
+            topics=row.topics,
+            subject_name=row.subject_name,
+            created_by=str(row.created_by),
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
+
+
+async def get_mcq_set(
+    db: AsyncSession,
+    user: CurrentUser,
+    vault_id: UUID,
+    set_id: UUID,
+) -> MCQSetDetail:
+    """Load a single MCQ set with full questions."""
+    vault = await _get_active_vault(db, vault_id)
+    await _assert_squad_member(db, vault, user.id)
+
+    stmt = select(MCQSet).where(
+        MCQSet.id == set_id,
+        MCQSet.vault_id == vault_id,
+        MCQSet.deleted_at.is_(None),
+    )
+    result = await db.execute(stmt)
+    row = result.scalar_one_or_none()
+    if not row:
+        raise ValidationError("MCQ set not found.")
+
+    # Reconstruct MCQQuestion objects from stored JSONB
+    questions = [MCQQuestion(**q) for q in row.questions]
+
+    return MCQSetDetail(
+        id=str(row.id),
+        vault_id=str(row.vault_id),
+        title=row.title,
+        difficulty=row.difficulty,
+        topics=row.topics,
+        question_count=row.question_count,
+        questions=questions,
+        subject_name=row.subject_name,
+        model_used=row.model_used,
+        created_by=str(row.created_by),
+        created_at=row.created_at,
+    )
+
+
+async def delete_mcq_set(
+    db: AsyncSession,
+    user: CurrentUser,
+    vault_id: UUID,
+    set_id: UUID,
+) -> None:
+    """Soft-delete a MCQ set (creator only)."""
+    vault = await _get_active_vault(db, vault_id)
+    await _assert_squad_member(db, vault, user.id)
+
+    stmt = select(MCQSet).where(
+        MCQSet.id == set_id,
+        MCQSet.vault_id == vault_id,
+        MCQSet.deleted_at.is_(None),
+    )
+    result = await db.execute(stmt)
+    row = result.scalar_one_or_none()
+    if not row:
+        raise ValidationError("MCQ set not found.")
+
+    if row.created_by != user.id:
+        raise ValidationError("Only the creator can delete this MCQ set.")
+
+    row.deleted_at = datetime.now(timezone.utc)
+    logger.info("mcq.set.deleted", set_id=str(set_id), by=str(user.id))

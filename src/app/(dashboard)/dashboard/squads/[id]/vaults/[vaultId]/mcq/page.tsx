@@ -2,7 +2,7 @@
 
 import { use, useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { ArrowLeft, BrainCircuit, Sparkles, AlertCircle, HelpCircle } from "lucide-react";
+import { ArrowLeft, BrainCircuit, Sparkles, AlertCircle, HelpCircle, Clock, Trash2, ChevronRight, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { VaultHeader } from "@/components/vaults/vault-header";
 import { MCQWizard } from "@/components/mcq/mcq-wizard";
@@ -11,15 +11,23 @@ import { MCQResults } from "@/components/mcq/mcq-results";
 import { getVault } from "@/app/actions/vaults/queries";
 import { listResources } from "@/app/actions/resources/queries";
 import { generateMCQ } from "@/app/actions/mcq/generate";
+import { listMCQSets, getMCQSet, deleteMCQSet } from "@/app/actions/mcq/sets";
 import { recordPracticeAttempt } from "@/app/actions/intelligence/mutations";
 import type { VaultDetail, ResourceListItem } from "@/types/vault";
-import type { MCQQuestion, MCQGenerateRequest } from "@/types/mcq";
+import type { MCQQuestion, MCQGenerateRequest, MCQSetListItem } from "@/types/mcq";
 
 interface Props {
   params: Promise<{ id: string; vaultId: string }>;
 }
 
 type Stage = "wizard" | "quiz" | "results";
+
+const DIFF_COLORS: Record<string, string> = {
+  easy: "text-green-400",
+  medium: "text-blue-400",
+  hard: "text-red-400",
+  mixed: "text-violet-400",
+};
 
 export default function MCQPage({ params }: Props) {
   const { id: squadId, vaultId } = use(params);
@@ -40,6 +48,11 @@ export default function MCQPage({ params }: Props) {
   // Wizard input history (for retry)
   const [lastRequest, setLastRequest] = useState<MCQGenerateRequest | null>(null);
 
+  // Saved sets
+  const [savedSets, setSavedSets] = useState<MCQSetListItem[]>([]);
+  const [loadingSets, setLoadingSets] = useState(true);
+  const [loadingSetId, setLoadingSetId] = useState<string | null>(null);
+
   const fetchVaultData = useCallback(async () => {
     try {
       const [v, r] = await Promise.all([
@@ -55,9 +68,21 @@ export default function MCQPage({ params }: Props) {
     }
   }, [vaultId]);
 
+  const fetchSavedSets = useCallback(async () => {
+    try {
+      const sets = await listMCQSets(vaultId);
+      setSavedSets(sets);
+    } catch {
+      // Non-critical: don't block UI
+    } finally {
+      setLoadingSets(false);
+    }
+  }, [vaultId]);
+
   useEffect(() => {
     fetchVaultData();
-  }, [fetchVaultData]);
+    fetchSavedSets();
+  }, [fetchVaultData, fetchSavedSets]);
 
   // Generate MCQs
   function handleGenerate(data: MCQGenerateRequest) {
@@ -75,10 +100,41 @@ export default function MCQPage({ params }: Props) {
         scoreRef.current = 0;
         setStage("quiz");
         toast.success(`Successfully generated ${response.questions.length} questions!`);
+        // Refresh saved sets list (the new set was auto-saved)
+        fetchSavedSets();
       } catch (err: any) {
         toast.error(err?.message ?? "Failed to generate MCQs.");
       }
     });
+  }
+
+  // Load a saved set
+  async function handleLoadSet(setId: string) {
+    setLoadingSetId(setId);
+    try {
+      const detail = await getMCQSet(vaultId, setId);
+      setQuestions(detail.questions);
+      setScore(0);
+      setAnswersCount(0);
+      scoreRef.current = 0;
+      setStage("quiz");
+      toast.success(`Loaded "${detail.title}" — ${detail.question_count} questions`);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to load quiz set.");
+    } finally {
+      setLoadingSetId(null);
+    }
+  }
+
+  // Delete a saved set
+  async function handleDeleteSet(setId: string) {
+    try {
+      await deleteMCQSet(vaultId, setId);
+      setSavedSets((prev) => prev.filter((s) => s.id !== setId));
+      toast.success("Quiz set deleted.");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to delete quiz set.");
+    }
   }
 
   // Answer callback
@@ -111,11 +167,9 @@ export default function MCQPage({ params }: Props) {
 
   // Retake same quiz
   function handleRetry() {
-    // Reset selection states in cards by setting stage back to quiz and key changes
     setScore(0);
     setAnswersCount(0);
     scoreRef.current = 0;
-    // shuffle questions if we want, or keep same
     setStage("quiz");
     toast.info("Retaking current quiz...");
   }
@@ -159,11 +213,88 @@ export default function MCQPage({ params }: Props) {
 
       <div className="max-w-4xl mx-auto space-y-8">
         {stage === "wizard" && (
-          <MCQWizard
-            onSubmit={handleGenerate}
-            isPending={isPending}
-            hasResources={hasResources}
-          />
+          <>
+            <MCQWizard
+              onSubmit={handleGenerate}
+              isPending={isPending}
+              hasResources={hasResources}
+            />
+
+            {/* ── Saved Quiz Sets ───────────────────────────────────────── */}
+            {!loadingSets && savedSets.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 border-b border-white/[0.06] pb-3">
+                  <BookOpen className="w-4 h-4 text-violet-400" />
+                  <h3 className="text-sm font-semibold text-white">Saved Quizzes</h3>
+                  <span className="text-[10px] text-zinc-600 font-mono ml-auto">
+                    {savedSets.length} set{savedSets.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+
+                <div className="border border-white/[0.06] rounded-2xl overflow-hidden bg-white/[0.01] divide-y divide-white/[0.04]">
+                  {savedSets.map((set) => (
+                    <div
+                      key={set.id}
+                      className="flex items-center justify-between p-4 hover:bg-white/[0.015] transition-colors"
+                    >
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <button
+                          onClick={() => handleLoadSet(set.id)}
+                          disabled={loadingSetId === set.id}
+                          className="text-sm font-semibold text-white hover:text-violet-400 transition-colors text-left truncate block"
+                        >
+                          {set.title}
+                        </button>
+                        <div className="flex items-center gap-2 text-[10px] text-zinc-500">
+                          <span className={`font-bold uppercase tracking-wider ${DIFF_COLORS[set.difficulty] ?? "text-zinc-400"}`}>
+                            {set.difficulty}
+                          </span>
+                          <span>·</span>
+                          <span>{set.question_count} questions</span>
+                          <span>·</span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-2.5 h-2.5" />
+                            {new Date(set.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 ml-4">
+                        <button
+                          onClick={() => handleLoadSet(set.id)}
+                          disabled={loadingSetId === set.id}
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-violet-400 hover:text-white border border-violet-500/10 hover:border-violet-500/30 hover:bg-violet-600/10 rounded-lg transition-all"
+                        >
+                          {loadingSetId === set.id ? (
+                            <div className="w-3 h-3 border border-violet-400 border-t-transparent animate-spin rounded-full" />
+                          ) : (
+                            <>
+                              <span>Practice</span>
+                              <ChevronRight className="w-3 h-3" />
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteSet(set.id)}
+                          className="p-1.5 text-zinc-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                          title="Delete quiz set"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {loadingSets && (
+              <div className="flex items-center justify-center py-4">
+                <div className="w-5 h-5 border border-violet-500 border-t-transparent animate-spin rounded-full" />
+                <span className="text-xs text-zinc-500 ml-2">Loading saved quizzes...</span>
+              </div>
+            )}
+          </>
         )}
 
         {stage === "quiz" && (

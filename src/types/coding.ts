@@ -39,6 +39,7 @@ export interface CodingQuestion {
 }
 
 export interface CodingGenerateResponse {
+  id: string | null;
   vault_id: string;
   subject_name?: string;
   language: string;
@@ -70,3 +71,31 @@ export interface CodingGradeResponse {
   compiler_output?: string;
 }
 
+// ── Persisted set types ─────────────────────────────────────────────────────
+
+export interface CodingSetListItem {
+  id: string;
+  title: string;
+  language: string;
+  difficulty: string;
+  question_count: number;
+  topics: string;
+  subject_name: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface CodingSetDetail {
+  id: string;
+  vault_id: string;
+  title: string;
+  language: string;
+  difficulty: string;
+  topics: string;
+  question_count: number;
+  questions: CodingQuestion[];
+  subject_name: string | null;
+  model_used: string | null;
+  created_by: string;
+  created_at: string;
+}

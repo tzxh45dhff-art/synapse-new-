@@ -55,6 +55,7 @@ class MCQQuestion(BunkerBaseModel):
 # ── Response ───────────────────────────────────────────────────────────────────
 
 class MCQGenerateResponse(BunkerBaseModel):
+    id: str | None = None               # persisted set id (UUID as string)
     vault_id: UUID
     subject_name: str | None
     difficulty: str
@@ -64,3 +65,33 @@ class MCQGenerateResponse(BunkerBaseModel):
     questions: list[MCQQuestion]
     generated_at: datetime
     model_used: str | None = None
+
+
+# ── Persisted set schemas ─────────────────────────────────────────────────────
+
+class MCQSetListItem(BunkerBaseModel):
+    """Lightweight representation for listing saved MCQ sets."""
+    id: str
+    title: str
+    difficulty: str
+    question_count: int
+    topics: str
+    subject_name: str | None = None
+    created_by: str
+    created_at: datetime
+
+
+class MCQSetDetail(BunkerBaseModel):
+    """Full MCQ set including all questions."""
+    id: str
+    vault_id: str
+    title: str
+    difficulty: str
+    topics: str
+    question_count: int
+    questions: list[MCQQuestion]
+    subject_name: str | None = None
+    model_used: str | None = None
+    created_by: str
+    created_at: datetime
+

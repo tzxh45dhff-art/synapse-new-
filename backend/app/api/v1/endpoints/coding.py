@@ -1,4 +1,4 @@
-"""Coding questions generation endpoint — POST /vaults/{vault_id}/coding/generate."""
+"""Coding questions endpoints — generate, grade, list, get, delete."""
 
 from typing import Annotated
 from uuid import UUID
@@ -12,6 +12,8 @@ from app.schemas.coding_schema import (
     CodingGenerateResponse,
     CodingGradeRequest,
     CodingGradeResponse,
+    CodingSetListItem,
+    CodingSetDetail,
 )
 from app.services import coding_service
 
@@ -39,3 +41,34 @@ async def grade_coding_question(
     """Grade a user's code submission using the AI simulator judge."""
     return await coding_service.grade_coding_question(db, current_user, vault_id, data)
 
+
+@router.get("/vaults/{vault_id}/coding/sets", response_model=list[CodingSetListItem])
+async def list_coding_sets(
+    vault_id: UUID,
+    current_user: CurrentUserDep,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[CodingSetListItem]:
+    """List all saved coding question sets for a vault."""
+    return await coding_service.list_coding_sets(db, current_user, vault_id)
+
+
+@router.get("/vaults/{vault_id}/coding/sets/{set_id}", response_model=CodingSetDetail)
+async def get_coding_set(
+    vault_id: UUID,
+    set_id: UUID,
+    current_user: CurrentUserDep,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> CodingSetDetail:
+    """Load a saved coding question set with all questions."""
+    return await coding_service.get_coding_set(db, current_user, vault_id, set_id)
+
+
+@router.delete("/vaults/{vault_id}/coding/sets/{set_id}", status_code=204)
+async def delete_coding_set(
+    vault_id: UUID,
+    set_id: UUID,
+    current_user: CurrentUserDep,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    """Soft-delete a saved coding question set (creator only)."""
+    await coding_service.delete_coding_set(db, current_user, vault_id, set_id)

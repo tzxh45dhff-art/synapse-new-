@@ -86,6 +86,7 @@ class CodingQuestion(BunkerBaseModel):
 # ── Response ───────────────────────────────────────────────────────────────────
 
 class CodingGenerateResponse(BunkerBaseModel):
+    id: str | None = None               # persisted set id (UUID as string)
     vault_id: UUID
     subject_name: str | None
     language: str
@@ -96,6 +97,37 @@ class CodingGenerateResponse(BunkerBaseModel):
     questions: list[CodingQuestion]
     generated_at: datetime
     model_used: str | None = None
+
+
+# ── Persisted set schemas ─────────────────────────────────────────────────────
+
+class CodingSetListItem(BunkerBaseModel):
+    """Lightweight representation for listing saved coding sets."""
+    id: str
+    title: str
+    language: str
+    difficulty: str
+    question_count: int
+    topics: str
+    subject_name: str | None = None
+    created_by: str
+    created_at: datetime
+
+
+class CodingSetDetail(BunkerBaseModel):
+    """Full coding question set including all questions."""
+    id: str
+    vault_id: str
+    title: str
+    language: str
+    difficulty: str
+    topics: str
+    question_count: int
+    questions: list[CodingQuestion]
+    subject_name: str | None = None
+    model_used: str | None = None
+    created_by: str
+    created_at: datetime
 
 
 # ── Grading ────────────────────────────────────────────────────────────────────
@@ -117,4 +149,5 @@ class CodingGradeResponse(BunkerBaseModel):
     total_test_cases: int
     feedback: str
     compiler_output: str | None = None
+
 

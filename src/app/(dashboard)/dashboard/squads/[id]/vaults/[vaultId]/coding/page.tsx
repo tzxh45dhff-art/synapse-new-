@@ -2,7 +2,7 @@
 
 import { use, useCallback, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { Terminal, AlertCircle, RotateCcw, CheckCircle2, Sparkles, ChevronRight, Play } from "lucide-react";
+import { Terminal, AlertCircle, RotateCcw, Sparkles, ChevronRight, Clock, Trash2, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { VaultHeader } from "@/components/vaults/vault-header";
 import { CodingWizard } from "@/components/coding/coding-wizard";
@@ -10,8 +10,9 @@ import { CodingWorkspace } from "@/components/coding/coding-workspace";
 import { getVault } from "@/app/actions/vaults/queries";
 import { listResources } from "@/app/actions/resources/queries";
 import { generateCodingQuestions } from "@/app/actions/coding/generate";
+import { listCodingSets, getCodingSet, deleteCodingSet } from "@/app/actions/coding/sets";
 import type { VaultDetail, ResourceListItem } from "@/types/vault";
-import type { CodingQuestion, CodingGenerateRequest } from "@/types/coding";
+import type { CodingQuestion, CodingGenerateRequest, CodingSetListItem } from "@/types/coding";
 
 interface Props {
   params: Promise<{ id: string; vaultId: string }>;
@@ -32,6 +33,13 @@ const DIFF_CONFIG: Record<string, { label: string; text: string }> = {
   hard:   { label: "Hard",   text: "text-red-400" },
 };
 
+const DIFF_COLORS: Record<string, string> = {
+  easy: "text-green-400",
+  medium: "text-blue-400",
+  hard: "text-red-400",
+  mixed: "text-violet-400",
+};
+
 export default function CodingQuestionsPage({ params }: Props) {
   const { id: squadId, vaultId } = use(params);
 
@@ -46,6 +54,11 @@ export default function CodingQuestionsPage({ params }: Props) {
   const [questions, setQuestions] = useState<CodingQuestion[]>([]);
   const [generatedLanguage, setGeneratedLanguage] = useState("");
   const [activeQuestionIndex, setActiveQuestionIndex] = useState<number | null>(null);
+
+  // Saved sets
+  const [savedSets, setSavedSets] = useState<CodingSetListItem[]>([]);
+  const [loadingSets, setLoadingSets] = useState(true);
+  const [loadingSetId, setLoadingSetId] = useState<string | null>(null);
 
   const fetchVaultData = useCallback(async () => {
     try {
@@ -62,9 +75,21 @@ export default function CodingQuestionsPage({ params }: Props) {
     }
   }, [vaultId]);
 
+  const fetchSavedSets = useCallback(async () => {
+    try {
+      const sets = await listCodingSets(vaultId);
+      setSavedSets(sets);
+    } catch {
+      // Non-critical: don't block UI
+    } finally {
+      setLoadingSets(false);
+    }
+  }, [vaultId]);
+
   useEffect(() => {
     fetchVaultData();
-  }, [fetchVaultData]);
+    fetchSavedSets();
+  }, [fetchVaultData, fetchSavedSets]);
 
   function handleGenerate(data: CodingGenerateRequest) {
     startTransition(async () => {
@@ -77,12 +102,42 @@ export default function CodingQuestionsPage({ params }: Props) {
         setGeneratedLanguage(response.language);
         setQuestions(response.questions);
         setStage("questions");
-        setActiveQuestionIndex(null); // return to problem set list initially
+        setActiveQuestionIndex(null);
         toast.success(`Generated ${response.questions.length} coding questions!`);
+        // Refresh saved sets list (the new set was auto-saved)
+        fetchSavedSets();
       } catch (err: any) {
         toast.error(err?.message ?? "Failed to generate coding questions.");
       }
     });
+  }
+
+  // Load a saved set
+  async function handleLoadSet(setId: string) {
+    setLoadingSetId(setId);
+    try {
+      const detail = await getCodingSet(vaultId, setId);
+      setGeneratedLanguage(detail.language);
+      setQuestions(detail.questions);
+      setStage("questions");
+      setActiveQuestionIndex(null);
+      toast.success(`Loaded "${detail.title}" — ${detail.question_count} problems`);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to load problem set.");
+    } finally {
+      setLoadingSetId(null);
+    }
+  }
+
+  // Delete a saved set
+  async function handleDeleteSet(setId: string) {
+    try {
+      await deleteCodingSet(vaultId, setId);
+      setSavedSets((prev) => prev.filter((s) => s.id !== setId));
+      toast.success("Problem set deleted.");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Failed to delete problem set.");
+    }
   }
 
   function handleReset() {
@@ -124,12 +179,93 @@ export default function CodingQuestionsPage({ params }: Props) {
 
       <div className={`${activeQuestionIndex !== null ? "w-full" : "max-w-4xl mx-auto"} space-y-6`}>
         {stage === "wizard" && (
-          <CodingWizard
-            onSubmit={handleGenerate}
-            isPending={isPending}
-            hasResources={hasResources}
-            resources={resources}
-          />
+          <>
+            <CodingWizard
+              onSubmit={handleGenerate}
+              isPending={isPending}
+              hasResources={hasResources}
+              resources={resources}
+            />
+
+            {/* ── Saved Problem Sets ────────────────────────────────────── */}
+            {!loadingSets && savedSets.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 border-b border-white/[0.06] pb-3">
+                  <BookOpen className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-sm font-semibold text-white">Saved Problem Sets</h3>
+                  <span className="text-[10px] text-zinc-600 font-mono ml-auto">
+                    {savedSets.length} set{savedSets.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+
+                <div className="border border-white/[0.06] rounded-2xl overflow-hidden bg-white/[0.01] divide-y divide-white/[0.04]">
+                  {savedSets.map((set) => (
+                    <div
+                      key={set.id}
+                      className="flex items-center justify-between p-4 hover:bg-white/[0.015] transition-colors"
+                    >
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <button
+                          onClick={() => handleLoadSet(set.id)}
+                          disabled={loadingSetId === set.id}
+                          className="text-sm font-semibold text-white hover:text-emerald-400 transition-colors text-left truncate block"
+                        >
+                          {set.title}
+                        </button>
+                        <div className="flex items-center gap-2 text-[10px] text-zinc-500">
+                          <span className="text-emerald-400/80 font-semibold uppercase tracking-wider">
+                            {set.language}
+                          </span>
+                          <span>·</span>
+                          <span className={`font-bold uppercase tracking-wider ${DIFF_COLORS[set.difficulty] ?? "text-zinc-400"}`}>
+                            {set.difficulty}
+                          </span>
+                          <span>·</span>
+                          <span>{set.question_count} problems</span>
+                          <span>·</span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-2.5 h-2.5" />
+                            {new Date(set.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 ml-4">
+                        <button
+                          onClick={() => handleLoadSet(set.id)}
+                          disabled={loadingSetId === set.id}
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-emerald-400 hover:text-white border border-emerald-500/10 hover:border-emerald-500/30 hover:bg-emerald-600/10 rounded-lg transition-all"
+                        >
+                          {loadingSetId === set.id ? (
+                            <div className="w-3 h-3 border border-emerald-400 border-t-transparent animate-spin rounded-full" />
+                          ) : (
+                            <>
+                              <span>Open</span>
+                              <ChevronRight className="w-3 h-3" />
+                            </>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteSet(set.id)}
+                          className="p-1.5 text-zinc-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                          title="Delete problem set"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {loadingSets && (
+              <div className="flex items-center justify-center py-4">
+                <div className="w-5 h-5 border border-emerald-500 border-t-transparent animate-spin rounded-full" />
+                <span className="text-xs text-zinc-500 ml-2">Loading saved problem sets...</span>
+              </div>
+            )}
+          </>
         )}
 
         {stage === "questions" && questions.length > 0 && (

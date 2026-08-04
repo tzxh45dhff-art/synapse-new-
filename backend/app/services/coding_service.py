@@ -2,6 +2,7 @@
 
 Builds a structured prompt, calls Azure OpenAI (GPT-4o), and parses
 the JSON response into validated CodingQuestion objects.
+Generated sets are automatically persisted to the database.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.vault import Subject, Vault
+from app.models.mcq_coding_set import CodingSet
 from app.schemas.coding_schema import (
     CodingExample,
     CodingGenerateRequest,
@@ -24,6 +26,8 @@ from app.schemas.coding_schema import (
     CodingGradeResponse,
     CodingLanguage,
     CodingQuestion,
+    CodingSetListItem,
+    CodingSetDetail,
 )
 from app.schemas.auth import CurrentUser
 from app.services.ai.factory import get_provider
@@ -48,7 +52,7 @@ _LANG_DISPLAY = {
 # ── Language inference from subject name ───────────────────────────────────────
 # Ordered so more specific keywords (e.g. "javascript") are checked before
 # substrings they contain (e.g. "java"). Plain "c" is handled separately with a
-# strict word-boundary match — checked last so "c++"/"cpp" claim those first.
+# strict word-boundary match — checked last so "c++"/\"cpp\" claim those first.
 
 _LANG_KEYWORDS: list[tuple[str, CodingLanguage]] = [
     ("c++", "cpp"),
@@ -277,13 +281,22 @@ async def _fetch_exact_context(
     return [c.content for c in chunks]
 
 
+def _build_title(topics: str, language: str, difficulty: str) -> str:
+    """Derive a human-readable title for a saved coding set."""
+    snippet = topics.strip()[:50].strip()
+    if len(topics.strip()) > 50:
+        snippet += "…"
+    lang_display = _LANG_DISPLAY.get(language, language)
+    return f"{snippet} — {lang_display} ({difficulty.capitalize()})"
+
+
 async def generate_coding_questions(
     db: AsyncSession,
     user: CurrentUser,
     vault_id: UUID,
     req: CodingGenerateRequest,
 ) -> CodingGenerateResponse:
-    """Generate coding questions for a vault and return structured results."""
+    """Generate coding questions for a vault, persist them, and return structured results."""
     vault = await _get_active_vault(db, vault_id)
     await _assert_squad_member(db, vault, user.id)
     await _assert_resources_in_vault(db, vault_id, req.resource_ids)
@@ -331,7 +344,34 @@ async def generate_coding_questions(
 
     questions = _parse_questions(full_text, req.count)
 
+    # ── Persist the generated set ──────────────────────────────────────────
+    generated_at = datetime.now(timezone.utc)
+    questions_json = [q.model_dump(mode="json") for q in questions]
+
+    coding_set = CodingSet(
+        vault_id=vault_id,
+        created_by=user.id,
+        title=_build_title(req.topics, language, req.difficulty),
+        language=language,
+        difficulty=req.difficulty,
+        topics=req.topics,
+        question_count=len(questions),
+        questions=questions_json,
+        subject_name=subject_name,
+        model_used=model_name,
+    )
+    db.add(coding_set)
+    await db.flush()
+
+    logger.info(
+        "coding.set.saved",
+        set_id=str(coding_set.id),
+        vault_id=str(vault_id),
+        count=len(questions),
+    )
+
     return CodingGenerateResponse(
+        id=str(coding_set.id),
         vault_id=vault_id,
         subject_name=subject_name,
         language=language,
@@ -340,7 +380,7 @@ async def generate_coding_questions(
         generated_count=len(questions),
         topics=req.topics,
         questions=questions,
-        generated_at=datetime.now(timezone.utc),
+        generated_at=generated_at,
         model_used=model_name,
     )
 
@@ -441,3 +481,104 @@ Return only the JSON object.
         compiler_output=data.get("compiler_output"),
     )
 
+
+# ── List / Get / Delete saved sets ────────────────────────────────────────────
+
+
+async def list_coding_sets(
+    db: AsyncSession,
+    user: CurrentUser,
+    vault_id: UUID,
+) -> list[CodingSetListItem]:
+    """List all non-deleted coding sets for a vault (accessible by any squad member)."""
+    vault = await _get_active_vault(db, vault_id)
+    await _assert_squad_member(db, vault, user.id)
+
+    stmt = (
+        select(CodingSet)
+        .where(CodingSet.vault_id == vault_id, CodingSet.deleted_at.is_(None))
+        .order_by(CodingSet.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+
+    return [
+        CodingSetListItem(
+            id=str(row.id),
+            title=row.title,
+            language=row.language,
+            difficulty=row.difficulty,
+            question_count=row.question_count,
+            topics=row.topics,
+            subject_name=row.subject_name,
+            created_by=str(row.created_by),
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
+
+
+async def get_coding_set(
+    db: AsyncSession,
+    user: CurrentUser,
+    vault_id: UUID,
+    set_id: UUID,
+) -> CodingSetDetail:
+    """Load a single coding set with full questions."""
+    vault = await _get_active_vault(db, vault_id)
+    await _assert_squad_member(db, vault, user.id)
+
+    stmt = select(CodingSet).where(
+        CodingSet.id == set_id,
+        CodingSet.vault_id == vault_id,
+        CodingSet.deleted_at.is_(None),
+    )
+    result = await db.execute(stmt)
+    row = result.scalar_one_or_none()
+    if not row:
+        raise ValidationError("Coding set not found.")
+
+    # Reconstruct CodingQuestion objects from stored JSONB
+    questions = [CodingQuestion(**q) for q in row.questions]
+
+    return CodingSetDetail(
+        id=str(row.id),
+        vault_id=str(row.vault_id),
+        title=row.title,
+        language=row.language,
+        difficulty=row.difficulty,
+        topics=row.topics,
+        question_count=row.question_count,
+        questions=questions,
+        subject_name=row.subject_name,
+        model_used=row.model_used,
+        created_by=str(row.created_by),
+        created_at=row.created_at,
+    )
+
+
+async def delete_coding_set(
+    db: AsyncSession,
+    user: CurrentUser,
+    vault_id: UUID,
+    set_id: UUID,
+) -> None:
+    """Soft-delete a coding set (creator only)."""
+    vault = await _get_active_vault(db, vault_id)
+    await _assert_squad_member(db, vault, user.id)
+
+    stmt = select(CodingSet).where(
+        CodingSet.id == set_id,
+        CodingSet.vault_id == vault_id,
+        CodingSet.deleted_at.is_(None),
+    )
+    result = await db.execute(stmt)
+    row = result.scalar_one_or_none()
+    if not row:
+        raise ValidationError("Coding set not found.")
+
+    if row.created_by != user.id:
+        raise ValidationError("Only the creator can delete this coding set.")
+
+    row.deleted_at = datetime.now(timezone.utc)
+    logger.info("coding.set.deleted", set_id=str(set_id), by=str(user.id))

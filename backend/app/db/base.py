@@ -25,3 +25,4 @@ from app.models.ai_generation import AIGeneration  # noqa: F401
 from app.models.expense import Expense, ExpenseSplit, Settlement  # noqa: F401
 from app.models.system import ActivityLog, Notification, UserPreference  # noqa: F401
 from app.models.tag import Tag, ResourceTag, NoteTag, QuizTag, FlashcardTag  # noqa: F401
+from app.models.mcq_coding_set import MCQSet, CodingSet  # noqa: F401

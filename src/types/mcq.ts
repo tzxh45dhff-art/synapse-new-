@@ -26,6 +26,7 @@ export interface MCQQuestion {
 }
 
 export interface MCQGenerateResponse {
+  id: string | null;
   vault_id: string;
   subject_name: string | null;
   difficulty: string;
@@ -35,4 +36,31 @@ export interface MCQGenerateResponse {
   questions: MCQQuestion[];
   generated_at: string;
   model_used: string | null;
+}
+
+// ── Persisted set types ─────────────────────────────────────────────────────
+
+export interface MCQSetListItem {
+  id: string;
+  title: string;
+  difficulty: string;
+  question_count: number;
+  topics: string;
+  subject_name: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface MCQSetDetail {
+  id: string;
+  vault_id: string;
+  title: string;
+  difficulty: string;
+  topics: string;
+  question_count: number;
+  questions: MCQQuestion[];
+  subject_name: string | null;
+  model_used: string | null;
+  created_by: string;
+  created_at: string;
 }
