@@ -17,30 +17,60 @@ export default function MembersPage() {
   const [squad, setSquad] = useState<SquadDetail | null>(null);
   const [members, setMembers] = useState<SquadMemberItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>("");
 
   const fetchData = useCallback(async () => {
+    setError(null);
     try {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        setError("Not logged in. Please sign in again.");
+        return;
+      }
       setCurrentUserId(user.id);
 
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      if (!session) {
+        setError("Session expired. Please sign in again.");
+        return;
+      }
 
       const apiBase = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const headers = { Authorization: `Bearer ${session.access_token}` };
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${session.access_token}`,
+        "ngrok-skip-browser-warning": "true",
+      };
+
+      console.log("[Members] Fetching from:", apiBase);
 
       const [squadRes, membersRes] = await Promise.all([
         fetch(`${apiBase}/api/v1/squads/${squadId}`, { headers }),
         fetch(`${apiBase}/api/v1/squads/${squadId}/members`, { headers }),
       ]);
 
-      if (squadRes.ok) setSquad(await squadRes.json());
-      if (membersRes.ok) setMembers(await membersRes.json());
+      if (!squadRes.ok) {
+        const body = await squadRes.text();
+        console.error("[Members] Squad fetch failed:", squadRes.status, body);
+        setError(`Failed to load squad (${squadRes.status}): ${body}`);
+        return;
+      }
+
+      setSquad(await squadRes.json());
+
+      if (!membersRes.ok) {
+        const body = await membersRes.text();
+        console.error("[Members] Members fetch failed:", membersRes.status, body);
+        toast.error(`Failed to load members: ${membersRes.status}`);
+      } else {
+        setMembers(await membersRes.json());
+      }
     } catch (err) {
-      console.error("Failed to load squad members:", err);
+      console.error("[Members] Network error:", err);
+      setError(
+        `Cannot reach backend. Make sure your backend is running.\n${err instanceof Error ? err.message : String(err)}`
+      );
     } finally {
       setLoading(false);
     }
@@ -75,6 +105,23 @@ export default function MembersPage() {
       <div className="space-y-6">
         <div className="h-8" />
         <MemberListSkeleton />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="mx-auto max-w-5xl space-y-6">
+        <SquadTabs squadId={squadId} />
+        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-6 text-center">
+          <p className="text-sm text-red-400 whitespace-pre-wrap">{error}</p>
+          <button
+            onClick={() => { setLoading(true); fetchData(); }}
+            className="mt-4 rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/20 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }

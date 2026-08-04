@@ -31,6 +31,7 @@ export async function streamChatMessage(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true",
         ...(session?.access_token
           ? { Authorization: `Bearer ${session.access_token}` }
           : {}),

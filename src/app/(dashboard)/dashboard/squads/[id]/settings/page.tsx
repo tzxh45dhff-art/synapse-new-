@@ -36,7 +36,10 @@ export default function SettingsPage() {
       if (!session) return;
 
       const apiBase = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const headers = { Authorization: `Bearer ${session.access_token}` };
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${session.access_token}`,
+        "ngrok-skip-browser-warning": "true",
+      };
 
       const [squadRes, membersRes] = await Promise.all([
         fetch(`${apiBase}/api/v1/squads/${squadId}`, { headers }),

@@ -23,6 +23,7 @@ async function request<T>(
 ): Promise<ApiResponse<T>> {
   const headers: HeadersInit = {
     "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
