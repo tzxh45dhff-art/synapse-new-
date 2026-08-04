@@ -26,24 +26,28 @@ export default function SettingsPage() {
   const [currentUserId, setCurrentUserId] = useState("");
 
   const fetchData = useCallback(async () => {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setCurrentUserId(user.id);
+    try {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      setCurrentUserId(user.id);
 
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
 
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const headers = { Authorization: `Bearer ${session.access_token}` };
+      const apiBase = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const headers = { Authorization: `Bearer ${session.access_token}` };
 
-    const [squadRes, membersRes] = await Promise.all([
-      fetch(`${apiBase}/api/v1/squads/${squadId}`, { headers }),
-      fetch(`${apiBase}/api/v1/squads/${squadId}/members`, { headers }),
-    ]);
+      const [squadRes, membersRes] = await Promise.all([
+        fetch(`${apiBase}/api/v1/squads/${squadId}`, { headers }),
+        fetch(`${apiBase}/api/v1/squads/${squadId}/members`, { headers }),
+      ]);
 
-    if (squadRes.ok) setSquad(await squadRes.json());
-    if (membersRes.ok) setMembers(await membersRes.json());
+      if (squadRes.ok) setSquad(await squadRes.json());
+      if (membersRes.ok) setMembers(await membersRes.json());
+    } catch (err) {
+      console.error("Failed to load squad settings:", err);
+    }
   }, [squadId]);
 
   useEffect(() => {
